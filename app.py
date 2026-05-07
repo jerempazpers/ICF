@@ -252,9 +252,40 @@ def do_delete(key):
         del st.session_state.saved_data[key]
     write_save(st.session_state.saved_data)
 
+def do_create(label, unit, inv, rows_df):
+    """Crée un nouvel indicateur à partir du formulaire admin."""
+    # Clé interne : slug sans accents ni espaces
+    import re, unicodedata
+    slug = unicodedata.normalize("NFD", label.lower())
+    slug = "".join(c for c in slug if unicodedata.category(c) != "Mn")
+    slug = re.sub(r"[^a-z0-9]+", "_", slug).strip("_")[:30]
+    # Éviter les doublons de clé
+    base, n = slug, 1
+    while slug in st.session_state.data:
+        slug = f"{base}_{n}"; n += 1
+
+    clean = rows_df.dropna(subset=["Année", "Valeur"])
+    if clean.empty:
+        return None, "Aucune donnée valide saisie."
+    years = list(clean["Année"].astype(int))
+    vals  = list(clean["Valeur"].astype(float))
+    if len(years) < 2:
+        return None, "Il faut au moins 2 points de données."
+
+    new_ind = {"label": label.strip(), "unit": unit.strip() or "valeur",
+               "inv": inv, "years": years, "vals": vals}
+    st.session_state.data[slug]       = new_ind
+    st.session_state.saved_data[slug] = copy.deepcopy(new_ind)
+    write_save(st.session_state.saved_data)
+    return slug, None
+
 # ════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ════════════════════════════════════════════════════════════════════════════
+
+# Init états sidebar
+if "show_create_form" not in st.session_state:
+    st.session_state.show_create_form = False
 
 with st.sidebar:
     st.title("🇫🇷 ICF")
@@ -264,10 +295,80 @@ with st.sidebar:
     if IS_ADMIN:
         # ── Connecté en admin ────────────────────────────────────────────────
         st.success("👑 Connecté en tant qu'admin")
+
+        # Bouton créer un indicateur
+        if not st.session_state.show_create_form:
+            if st.button("➕ Créer un indicateur", use_container_width=True, type="primary"):
+                st.session_state.show_create_form = True
+                st.rerun()
+        else:
+            st.markdown("### Nouvel indicateur")
+
+            new_label = st.text_input("Nom de l'indicateur *",
+                                      placeholder="ex : Taux de chômage")
+            new_unit  = st.text_input("Unité de mesure",
+                                      placeholder="ex : %, nb, score…")
+            new_inv   = st.radio(
+                "Sens de l'indicateur",
+                options=[False, True],
+                format_func=lambda x: (
+                    "↑ Hausse = bon (ex : participation)"   if not x
+                    else "↑ Hausse = mauvais (ex : chômage)"
+                ),
+                help="Détermine si une valeur qui monte améliore ou dégrade le score."
+            )
+
+            st.caption("Saisir les données année par année :")
+
+            # Tableau de saisie dynamique — démarre avec 3 lignes vides
+            if "new_ind_rows" not in st.session_state:
+                st.session_state.new_ind_rows = pd.DataFrame(
+                    {"Année": [2022, 2023, 2024], "Valeur": [None, None, None]}
+                )
+
+            new_rows = st.data_editor(
+                st.session_state.new_ind_rows,
+                num_rows="dynamic",
+                column_config={
+                    "Année":  st.column_config.NumberColumn(
+                                  "Année", min_value=2000, max_value=2040,
+                                  step=1, format="%d"),
+                    "Valeur": st.column_config.NumberColumn("Valeur", format="%.4g"),
+                },
+                key="new_ind_editor",
+                use_container_width=True,
+            )
+
+            col_ok, col_cancel = st.columns(2)
+            with col_ok:
+                create_clicked = st.button("✓ Créer", use_container_width=True,
+                                           type="primary")
+            with col_cancel:
+                if st.button("✕ Annuler", use_container_width=True):
+                    st.session_state.show_create_form = False
+                    if "new_ind_rows" in st.session_state:
+                        del st.session_state["new_ind_rows"]
+                    st.rerun()
+
+            if create_clicked:
+                if not new_label.strip():
+                    st.error("Le nom de l'indicateur est obligatoire.")
+                else:
+                    slug, err = do_create(new_label, new_unit, new_inv, new_rows)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.session_state.show_create_form = False
+                        if "new_ind_rows" in st.session_state:
+                            del st.session_state["new_ind_rows"]
+                        st.success(f"✅ « {new_label.strip()} » créé !")
+                        st.rerun()
+
+        st.divider()
         if st.button("🚪 Se déconnecter", use_container_width=True):
-            st.session_state.is_admin        = False
-            st.session_state.show_login_form = False
-            # On recharge les données depuis la sauvegarde propre
+            st.session_state.is_admin         = False
+            st.session_state.show_login_form  = False
+            st.session_state.show_create_form = False
             st.session_state.data = copy.deepcopy(st.session_state.saved_data)
             st.rerun()
     else:
