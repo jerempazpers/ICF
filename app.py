@@ -2,13 +2,13 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import json, copy, os
+import json, copy, os, hashlib
 
 st.set_page_config(page_title="ICF — Indice de Citoyenneté Française", layout="wide")
 
 SAVE_FILE = "icf_saved_data.json"
 
-# ─── Données initiales (fichier MATLAB) ────────────────────────────────────
+# ─── Données initiales ──────────────────────────────────────────────────────
 ORIGINAL_DATA = {
     "racisme": {
         "label": "Infractions racistes", "unit": "nb infractions", "inv": True,
@@ -70,7 +70,95 @@ ORIGINAL_DATA = {
 YEARS_AXIS = list(range(2015, 2031))
 BLUE, RED  = "#378ADD", "#E24B4A"
 
-# ─── Persistance fichier JSON ────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# AUTHENTIFICATION
+# ════════════════════════════════════════════════════════════════════════════
+
+def hash_pw(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def load_users() -> dict:
+    """
+    Charge les utilisateurs depuis st.secrets (Streamlit Cloud)
+    ou depuis un fichier local users.json (usage local).
+    Format secrets.toml :
+        [users]
+        admin    = "hash_sha256_du_mot_de_passe_admin"
+        visiteur = "hash_sha256_du_mot_de_passe_visiteur"
+        [roles]
+        admin    = "admin"
+        visiteur = "visitor"
+    """
+    try:
+        users  = dict(st.secrets["users"])
+        roles  = dict(st.secrets["roles"])
+        return {u: {"hash": h, "role": roles.get(u, "visitor")}
+                for u, h in users.items()}
+    except Exception:
+        pass
+
+    # Fallback local : fichier users.json
+    if os.path.exists("users.json"):
+        try:
+            with open("users.json", "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    # Fallback ultime : comptes par défaut codés en dur
+    # CHANGEZ ces mots de passe avant de déployer !
+    return {
+        "admin":    {"hash": hash_pw("admin1234"),   "role": "admin"},
+        "visiteur": {"hash": hash_pw("visiteur1234"), "role": "visitor"},
+    }
+
+def check_login(username: str, password: str) -> str | None:
+    """Retourne le rôle si identifiants corrects, None sinon."""
+    users = load_users()
+    user  = users.get(username.strip().lower())
+    if user and user["hash"] == hash_pw(password):
+        return user["role"]
+    return None
+
+def show_login():
+    """Affiche le formulaire de connexion centré."""
+    col1, col2, col3 = st.columns([1, 1.6, 1])
+    with col2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.title("🇫🇷 ICF")
+        st.caption("Indice de Citoyenneté Française")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        with st.form("login_form"):
+            username = st.text_input("Identifiant")
+            password = st.text_input("Mot de passe", type="password")
+            submitted = st.form_submit_button("Se connecter", use_container_width=True,
+                                              type="primary")
+
+        if submitted:
+            role = check_login(username, password)
+            if role:
+                st.session_state.logged_in  = True
+                st.session_state.username   = username.strip().lower()
+                st.session_state.role       = role
+                st.rerun()
+            else:
+                st.error("Identifiant ou mot de passe incorrect.")
+
+# ─── Vérification session ────────────────────────────────────────────────────
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if not st.session_state.logged_in:
+    show_login()
+    st.stop()   # ← arrête tout le reste si pas connecté
+
+IS_ADMIN = st.session_state.role == "admin"
+
+# ════════════════════════════════════════════════════════════════════════════
+# PERSISTANCE
+# ════════════════════════════════════════════════════════════════════════════
+
 def load_saved():
     if os.path.exists(SAVE_FILE):
         try:
@@ -84,7 +172,10 @@ def write_save(data):
     with open(SAVE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ─── Calculs ─────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# CALCULS
+# ════════════════════════════════════════════════════════════════════════════
+
 def z_norm_100(arr, inv):
     arr = np.array(arr, float)
     mu, sigma = arr.mean(), arr.std()
@@ -112,21 +203,24 @@ def build_series(ind):
     prev_score = float(scores[last_idx-1]) if last_idx > 0 else None
 
     return {
-        "scores":       scores,
-        "real_scores":  np.where(is_real, scores, np.nan),
-        "real_raw":     np.where(is_real, all_vals, np.nan),
-        "proj_raw":     proj_raw,
-        "slope":        round(float(as_), 3),
-        "last_score":   last_score,
-        "prev_score":   prev_score,
-        "proj_2030":    float(scores[-1]),
+        "scores":      scores,
+        "real_scores": np.where(is_real, scores, np.nan),
+        "real_raw":    np.where(is_real, all_vals, np.nan),
+        "proj_raw":    proj_raw,
+        "slope":       round(float(as_), 3),
+        "last_score":  last_score,
+        "prev_score":  prev_score,
+        "proj_2030":   float(scores[-1]),
     }
 
 def compute_global(data):
     matrix = np.vstack([build_series(ind)["scores"] for ind in data.values()])
     return np.round(np.nanmean(matrix, axis=0), 2)
 
-# ─── Graphiques ───────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# GRAPHIQUES
+# ════════════════════════════════════════════════════════════════════════════
+
 def score_fig(s, label):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -175,23 +269,23 @@ def raw_fig(s, label, unit):
     )
     return fig
 
-# ─── Session state ────────────────────────────────────────────────────────────
-# saved_data  → dernière sauvegarde permanente (référence pour "Réinitialiser")
-# data        → état courant affiché (peut diverger de saved_data)
+# ════════════════════════════════════════════════════════════════════════════
+# SESSION STATE
+# ════════════════════════════════════════════════════════════════════════════
 
 if "saved_data" not in st.session_state:
     st.session_state.saved_data = load_saved()
 if "data" not in st.session_state:
     st.session_state.data = copy.deepcopy(st.session_state.saved_data)
 
-# ─── Actions ──────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# ACTIONS (admin seulement)
+# ════════════════════════════════════════════════════════════════════════════
+
 def _parse_edited(key, edited_df):
-    unit = st.session_state.data[key]["unit"]
+    unit  = st.session_state.data[key]["unit"]
     clean = edited_df.dropna(subset=["Année", unit])
-    return (
-        list(clean["Année"].astype(int)),
-        list(clean[unit].astype(float)),
-    )
+    return list(clean["Année"].astype(int)), list(clean[unit].astype(float))
 
 def do_apply(key, edited_df):
     yrs, vals = _parse_edited(key, edited_df)
@@ -215,29 +309,49 @@ def do_delete(key):
         del st.session_state.saved_data[key]
     write_save(st.session_state.saved_data)
 
-# ─── Titre ────────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+# BARRE LATÉRALE (user info + déconnexion)
+# ════════════════════════════════════════════════════════════════════════════
+
+with st.sidebar:
+    role_label = "👑 Administrateur" if IS_ADMIN else "👁 Visiteur"
+    st.markdown(f"**{st.session_state.username}**")
+    st.caption(role_label)
+    st.divider()
+    if not IS_ADMIN:
+        st.info("Mode lecture seule.\nSeul l'admin peut modifier les données.")
+    if st.button("🚪 Se déconnecter", use_container_width=True):
+        for k in ["logged_in", "username", "role", "data", "saved_data"]:
+            st.session_state.pop(k, None)
+        st.rerun()
+
+# ════════════════════════════════════════════════════════════════════════════
+# TITRE
+# ════════════════════════════════════════════════════════════════════════════
+
 st.title("🇫🇷 Indice de Citoyenneté Française (ICF)")
 st.caption("Tableau de bord · Données 2015–2024 · Projection linéaire jusqu'en 2030")
 
-data = st.session_state.data
+data      = st.session_state.data
 tab_names = ["ICF Global"] + [ind["label"] for ind in data.values()]
-tabs = st.tabs(tab_names)
+tabs      = st.tabs(tab_names)
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 # ONGLET GLOBAL
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+
 with tabs[0]:
     if not data:
         st.warning("Aucun indicateur disponible.")
     else:
-        gs   = compute_global(data)
+        gs     = compute_global(data)
         ag, bg = np.polyfit(YEARS_AXIS, gs, 1)
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Score 2024", f"{gs[YEARS_AXIS.index(2024)]:.1f} / 100")
-        c2.metric("Tendance",   f"{ag:+.2f} pts/an")
-        c3.metric("Projection 2030", f"{gs[-1]:.1f} / 100")
-        c4.metric("Indicateurs actifs", len(data))
+        c1.metric("Score 2024",          f"{gs[YEARS_AXIS.index(2024)]:.1f} / 100")
+        c2.metric("Tendance",            f"{ag:+.2f} pts/an")
+        c3.metric("Projection 2030",     f"{gs[-1]:.1f} / 100")
+        c4.metric("Indicateurs actifs",  len(data))
 
         fig_g = go.Figure()
         fig_g.add_trace(go.Scatter(
@@ -272,9 +386,10 @@ with tabs[0]:
         }
         st.dataframe(pd.DataFrame(rows).T, use_container_width=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 # ONGLETS INDIVIDUELS
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+
 for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
     with tabs[tab_idx]:
         s = build_series(ind)
@@ -282,10 +397,10 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
         # Métriques
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Dernier score réel", f"{s['last_score']:.1f} / 100")
-        c2.metric("Tendance", f"{s['slope']:+.2f} pts/an")
-        c3.metric("Projection 2030", f"{s['proj_2030']:.1f} / 100")
+        c2.metric("Tendance",           f"{s['slope']:+.2f} pts/an")
+        c3.metric("Projection 2030",    f"{s['proj_2030']:.1f} / 100")
         if s["prev_score"] is not None:
-            c4.metric("Variation", f"{s['last_score']-s['prev_score']:+.1f} pts")
+            c4.metric("Variation",      f"{s['last_score']-s['prev_score']:+.1f} pts")
 
         # Courbes
         col_l, col_r = st.columns(2)
@@ -294,84 +409,76 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
         with col_r:
             st.plotly_chart(raw_fig(s, ind["label"], ind["unit"]), use_container_width=True)
 
-        st.divider()
+        # ── Section édition (admin seulement) ────────────────────────────────
+        if IS_ADMIN:
+            st.divider()
+            st.subheader("Modifier les données")
 
-        # ── Éditeur ──────────────────────────────────────────────────────────
-        st.subheader("Modifier les données")
-
-        # Bandeau d'état : modif non sauvegardée ?
-        saved_ref = st.session_state.saved_data.get(key)
-        has_unsaved = saved_ref is not None and (
-            saved_ref["years"] != ind["years"] or saved_ref["vals"] != ind["vals"]
-        )
-        if has_unsaved:
-            st.warning("⚠️ Modifications en cours — pas encore sauvegardées définitivement.")
-
-        edited = st.data_editor(
-            pd.DataFrame({"Année": ind["years"], ind["unit"]: ind["vals"]}),
-            num_rows="dynamic",
-            column_config={
-                "Année": st.column_config.NumberColumn(
-                    "Année", min_value=2000, max_value=2040, step=1, format="%d"),
-                ind["unit"]: st.column_config.NumberColumn(ind["unit"], format="%.4g"),
-            },
-            key=f"editor_{key}",
-            use_container_width=True,
-        )
-
-        # ── 3 boutons ─────────────────────────────────────────────────────────
-        st.markdown("")
-        col_a, col_p, col_r, _ = st.columns([2.2, 2.8, 1.8, 2])
-
-        with col_a:
-            if st.button(
-                "▶ Appliquer la modif", key=f"apply_{key}", use_container_width=True,
-                help="Met à jour les courbes — ne sauvegarde pas sur disque"
-            ):
-                do_apply(key, edited)
-                st.rerun()
-
-        with col_p:
-            if st.button(
-                "💾 Sauvegarder pour toujours", key=f"perm_{key}",
-                use_container_width=True, type="primary",
-                help="Sauvegarde sur disque — devient la nouvelle référence du bouton Réinitialiser"
-            ):
-                do_save_permanent(key, edited)
-                st.success("✅ Sauvegarde permanente effectuée !")
-                st.rerun()
-
-        with col_r:
-            if st.button(
-                "↺ Réinitialiser", key=f"reset_{key}", use_container_width=True,
-                help="Revient à la dernière sauvegarde permanente"
-            ):
-                do_reset(key)
-                st.rerun()
-
-        # ── Supprimer l'indicateur ────────────────────────────────────────────
-        st.markdown("")
-        with st.expander("⚠️ Supprimer cet indicateur"):
-            st.warning(
-                f"Supprimer **{ind['label']}** le retirera de l'ICF global et de tous les onglets. "
-                "Cette action est permanente (écrase la sauvegarde sur disque)."
+            saved_ref   = st.session_state.saved_data.get(key)
+            has_unsaved = saved_ref is not None and (
+                saved_ref["years"] != ind["years"] or saved_ref["vals"] != ind["vals"]
             )
-            confirmed = st.checkbox(
-                f"Je confirme la suppression de « {ind['label']} »",
-                key=f"confirm_del_{key}"
-            )
-            if st.button(
-                "🗑 Supprimer définitivement", key=f"del_{key}",
-                disabled=not confirmed, type="primary"
-            ):
-                do_delete(key)
-                st.rerun()
+            if has_unsaved:
+                st.warning("⚠️ Modifications en cours — pas encore sauvegardées définitivement.")
 
-        # ── Export JSON ───────────────────────────────────────────────────────
+            edited = st.data_editor(
+                pd.DataFrame({"Année": ind["years"], ind["unit"]: ind["vals"]}),
+                num_rows="dynamic",
+                column_config={
+                    "Année":    st.column_config.NumberColumn(
+                                    "Année", min_value=2000, max_value=2040,
+                                    step=1, format="%d"),
+                    ind["unit"]: st.column_config.NumberColumn(ind["unit"], format="%.4g"),
+                },
+                key=f"editor_{key}",
+                use_container_width=True,
+            )
+
+            col_a, col_p, col_r, _ = st.columns([2.2, 2.8, 1.8, 2])
+            with col_a:
+                if st.button("▶ Appliquer la modif", key=f"apply_{key}",
+                             use_container_width=True,
+                             help="Met à jour les courbes sans sauvegarder sur disque"):
+                    do_apply(key, edited)
+                    st.rerun()
+            with col_p:
+                if st.button("💾 Sauvegarder pour toujours", key=f"perm_{key}",
+                             use_container_width=True, type="primary",
+                             help="Sauvegarde sur disque — nouvelle référence du bouton Réinitialiser"):
+                    do_save_permanent(key, edited)
+                    st.success("✅ Sauvegarde permanente effectuée !")
+                    st.rerun()
+            with col_r:
+                if st.button("↺ Réinitialiser", key=f"reset_{key}",
+                             use_container_width=True,
+                             help="Revient à la dernière sauvegarde permanente"):
+                    do_reset(key)
+                    st.rerun()
+
+            st.markdown("")
+            with st.expander("⚠️ Supprimer cet indicateur"):
+                st.warning(
+                    f"Supprimer **{ind['label']}** le retirera de l'ICF global "
+                    "et de tous les onglets. Action permanente."
+                )
+                confirmed = st.checkbox(
+                    f"Je confirme la suppression de « {ind['label']} »",
+                    key=f"confirm_del_{key}"
+                )
+                if st.button("🗑 Supprimer définitivement", key=f"del_{key}",
+                             disabled=not confirmed, type="primary"):
+                    do_delete(key)
+                    st.rerun()
+
+        else:
+            # Visiteur : message discret
+            st.caption("🔒 Connexion admin requise pour modifier les données.")
+
+        # Export JSON (disponible pour tous)
         with st.expander("Exporter les données (JSON)"):
             json_str = json.dumps(
                 {"label": ind["label"], "unit": ind["unit"],
-                 "years": ind["years"], "vals":  ind["vals"]},
+                 "years": ind["years"], "vals": ind["vals"]},
                 indent=2, ensure_ascii=False,
             )
             st.code(json_str, language="json")
