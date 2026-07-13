@@ -416,7 +416,9 @@ with st.sidebar:
 # ════════════════════════════════════════════════════════════════════════════
 
 st.title("🇫🇷 Indice de Citoyenneté Française (ICF)")
-st.caption("Les Enfants de la République · Données 2015–2024 · Projection linéaire jusqu'en 2030")
+# Année max réelle parmi tous les indicateurs (recalculé à chaque rendu)
+max_year_global = max(max(ind["years"]) for ind in data.values()) if data else 2024
+st.caption(f"Les Enfants de la République · Données 2015–{max_year_global} · Projection linéaire jusqu'en 2030")
 
 data      = st.session_state.data
 tab_names = ["ICF Global"] + [ind["label"] for ind in data.values()]
@@ -433,11 +435,14 @@ with tabs[0]:
         gs     = compute_global(data)
         ag, bg = np.polyfit(YEARS_AXIS, gs, 1)
 
+        # Année max commune à tous les indicateurs (dernière année avec données réelles partout)
+        max_year = max(max(ind["years"]) for ind in data.values())
+
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Score 2024",         f"{gs[YEARS_AXIS.index(2024)]:.1f} / 100")
-        c2.metric("Tendance",           f"{ag:+.2f} pts/an")
-        c3.metric("Projection 2030",    f"{gs[-1]:.1f} / 100")
-        c4.metric("Indicateurs actifs", len(data))
+        c1.metric(f"Score {max_year}",      f"{gs[YEARS_AXIS.index(max_year)]:.1f} / 100")
+        c2.metric("Tendance",               f"{ag:+.2f} pts/an")
+        c3.metric("Projection 2030",        f"{gs[-1]:.1f} / 100")
+        c4.metric("Indicateurs actifs",     len(data))
 
         fig_g = go.Figure()
         fig_g.add_trace(go.Scatter(
@@ -462,15 +467,38 @@ with tabs[0]:
         )
         st.plotly_chart(fig_g, use_container_width=True)
 
-        st.subheader("Scores par indicateur (2015–2024)")
-        rows = {
-            ind["label"]: {
-                str(y): f"{build_series(ind)['scores'][i]:.1f}"
-                for i, y in enumerate(YEARS_AXIS) if y <= 2024
-            }
-            for ind in data.values()
-        }
-        st.dataframe(pd.DataFrame(rows).T, use_container_width=True)
+        # Années réelles : union de toutes les années réellement renseignées
+        all_real_years = sorted(set(
+            y for ind in data.values() for y in ind["years"]
+        ))
+
+        st.subheader(f"Scores par indicateur ({all_real_years[0]}–{all_real_years[-1]})")
+
+        # Rebuild series une seule fois par indicateur pour éviter les doublons
+        series_cache = {key: build_series(ind) for key, ind in data.items()}
+
+        rows = {}
+        for key, ind in data.items():
+            s = series_cache[key]
+            row = {}
+            for y in all_real_years:
+                if y in ind["years"]:
+                    # Valeur réelle : on prend le score correspondant dans YEARS_AXIS
+                    idx = YEARS_AXIS.index(y)
+                    row[str(y)] = f"{s['scores'][idx]:.1f}"
+                else:
+                    # Pas de donnée réelle cette année pour cet indicateur
+                    row[str(y)] = "—"
+            rows[ind["label"]] = row
+
+        df_recap = pd.DataFrame(rows).T
+        # Colorer les cellules "—" en gris via style
+        st.dataframe(
+            df_recap.style.applymap(
+                lambda v: "color: #aaa; font-style: italic" if v == "—" else ""
+            ),
+            use_container_width=True,
+        )
 
 # ════════════════════════════════════════════════════════════════════════════
 # ONGLETS INDIVIDUELS
