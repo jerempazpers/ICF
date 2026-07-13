@@ -416,11 +416,10 @@ with st.sidebar:
 # ════════════════════════════════════════════════════════════════════════════
 
 st.title("🇫🇷 Indice de Citoyenneté Française (ICF)")
-# Année max réelle parmi tous les indicateurs (recalculé à chaque rendu)
-max_year_global = max(max(ind["years"]) for ind in data.values()) if data else 2024
-st.caption(f"Les Enfants de la République · Données 2015–{max_year_global} · Projection linéaire jusqu'en 2030")
+st.caption("Les Enfants de la République · Indice de Citoyenneté Française · Projection linéaire jusqu'en 2030")
 
-data      = st.session_state.data
+data           = st.session_state.data
+max_year_global = max(max(ind["years"]) for ind in data.values()) if data else 2024
 tab_names = ["ICF Global"] + [ind["label"] for ind in data.values()]
 tabs      = st.tabs(tab_names)
 
