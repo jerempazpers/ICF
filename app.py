@@ -333,7 +333,7 @@ with st.sidebar:
                     "Année":  st.column_config.NumberColumn(
                                   "Année", min_value=2000, max_value=2040,
                                   step=1, format="%d"),
-                    "Valeur": st.column_config.NumberColumn("Valeur", format="%.4g"),
+                    "Valeur": st.column_config.NumberColumn("Valeur", format="%.10g"),
                 },
                 key="new_ind_editor",
                 use_container_width=True,
@@ -533,7 +533,7 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
                     "Année":     st.column_config.NumberColumn(
                                      "Année", min_value=2000, max_value=2040,
                                      step=1, format="%d"),
-                    ind["unit"]: st.column_config.NumberColumn(ind["unit"], format="%.4g"),
+                    ind["unit"]: st.column_config.NumberColumn(ind["unit"], format="%.10g"),
                 },
                 key=f"editor_{key}",
                 use_container_width=True,
