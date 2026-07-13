@@ -492,12 +492,7 @@ with tabs[0]:
 
         df_recap = pd.DataFrame(rows).T
         # Colorer les cellules "—" en gris via style
-        st.dataframe(
-            df_recap.style.applymap(
-                lambda v: "color: #aaa; font-style: italic" if v == "—" else ""
-            ),
-            use_container_width=True,
-        )
+        st.dataframe(df_recap, use_container_width=True)
 
 # ════════════════════════════════════════════════════════════════════════════
 # ONGLETS INDIVIDUELS
