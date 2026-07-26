@@ -140,8 +140,16 @@ if "data" not in st.session_state:
 # ════════════════════════════════════════════════════════════════════════════
 
 def z_norm_100(arr, inv):
+    """Normalise arr en Z-score sur sa propre distribution, ramène à 0–100."""
     arr = np.array(arr, float)
     mu, sigma = arr.mean(), arr.std()
+    if sigma == 0: return np.full(len(arr), 50.0)
+    zn = np.clip(((arr - mu) / sigma + 3) / 6, 0, 1) * 100
+    return np.round(100 - zn if inv else zn, 1)
+
+def z_apply_fixed(arr, mu, sigma, inv):
+    """Applique une normalisation Z-score avec mu/sigma fixes (référentiel figé)."""
+    arr = np.array(arr, float)
     if sigma == 0: return np.full(len(arr), 50.0)
     zn = np.clip(((arr - mu) / sigma + 3) / 6, 0, 1) * 100
     return np.round(100 - zn if inv else zn, 1)
@@ -150,9 +158,23 @@ def build_series(ind):
     years = np.array(ind["years"]); vals = np.array(ind["vals"], float)
     a, b  = np.polyfit(years, vals, 1)
     rby   = dict(zip(ind["years"], ind["vals"]))
-    all_v = np.array([rby.get(y, a*y+b) for y in YEARS_AXIS])
-    is_r  = np.array([y in rby for y in YEARS_AXIS])
-    scores = z_norm_100(all_v, ind["inv"])
+
+    # ── Série de référence : exactement comme MATLAB ──────────────────────
+    # = données réelles + année de départ (2015) extrapolée si manquante
+    ref_start = min(YEARS_AXIS[0], int(years[0]))  # 2015 ou première année réelle
+    ref_years = list(range(ref_start, int(years[-1]) + 1))
+    ref_vals  = np.array([rby.get(y, a*y+b) for y in ref_years])
+
+    # μ et σ calculés UNE SEULE FOIS sur cette série de référence
+    # ddof=1 = écart-type non biaisé, identique à std() de MATLAB
+    mu    = ref_vals.mean()
+    sigma = ref_vals.std(ddof=1)
+
+    # ── Application des μ/σ fixes à toute la plage 2015–2030 ─────────────
+    all_v  = np.array([rby.get(y, a*y+b) for y in YEARS_AXIS])
+    is_r   = np.array([y in rby for y in YEARS_AXIS])
+    scores = z_apply_fixed(all_v, mu, sigma, ind["inv"])
+
     as_, _ = np.polyfit(YEARS_AXIS, scores, 1)
     li = int(np.where(is_r)[0][-1])
     return {
@@ -164,6 +186,8 @@ def build_series(ind):
         "last_score":  float(scores[li]),
         "prev_score":  float(scores[li-1]) if li > 0 else None,
         "proj_2030":   float(scores[-1]),
+        "mu":          round(float(mu), 4),
+        "sigma":       round(float(sigma), 4),
     }
 
 def compute_global(data):
