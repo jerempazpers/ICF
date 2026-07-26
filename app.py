@@ -139,14 +139,6 @@ if "data" not in st.session_state:
 # CALCULS
 # ════════════════════════════════════════════════════════════════════════════
 
-def z_norm_100(arr, inv):
-    """Normalise arr en Z-score sur sa propre distribution, ramène à 0–100."""
-    arr = np.array(arr, float)
-    mu, sigma = arr.mean(), arr.std()
-    if sigma == 0: return np.full(len(arr), 50.0)
-    zn = np.clip(((arr - mu) / sigma + 3) / 6, 0, 1) * 100
-    return np.round(100 - zn if inv else zn, 1)
-
 def z_apply_fixed(arr, mu, sigma, inv):
     """Applique une normalisation Z-score avec mu/sigma fixes (référentiel figé)."""
     arr = np.array(arr, float)
@@ -160,9 +152,10 @@ def build_series(ind):
     rby   = dict(zip(ind["years"], ind["vals"]))
 
     # ── Série de référence : exactement comme MATLAB ──────────────────────
-    # = données réelles + année de départ (2015) extrapolée si manquante
-    ref_start = min(YEARS_AXIS[0], int(years[0]))  # 2015 ou première année réelle
-    ref_years = list(range(ref_start, int(years[-1]) + 1))
+    # Toujours 2015 → max(2024, dernière année réelle), extrapolé aux extrémités
+    # MATLAB normalise toujours sur 10 pts fixes (2015-2024) complétés par régression
+    ref_end   = max(2024, int(years[-1]))
+    ref_years = list(range(2015, ref_end + 1))
     ref_vals  = np.array([rby.get(y, a*y+b) for y in ref_years])
 
     # μ et σ calculés UNE SEULE FOIS sur cette série de référence
