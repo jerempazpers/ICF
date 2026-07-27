@@ -587,11 +587,12 @@ with tabs[0]:
 
         # ── Cas normal : calcul ICF ─────────────────────────────────────────
         else:
-            # ICF métrique = même valeur que la courbe (gs à l'index icf_year)
-            # gs = compute_global(data) = moyenne build_series pour chaque indicateur
-            # On lit directement gs pour garantir la cohérence avec le graphique
-            if icf_year in YEARS_AXIS:
-                icf_last = round(float(gs[YEARS_AXIS.index(icf_year)]), 1)
+            # ICF 2025 = score calculé à l'année 2024 (target_data_yr)
+            # La courbe affiche les scores PAR ANNÉE DE DONNÉES (2024 sur l'axe X)
+            # Le label "ICF 2025" signifie "calculé sur les données jusqu'en 2024"
+            # → on lit gs à l'index target_data_yr, pas icf_year
+            if target_data_yr in YEARS_AXIS:
+                icf_last = round(float(gs[YEARS_AXIS.index(target_data_yr)]), 1)
             else:
                 icf_last = round(float(np.mean([
                     compute_score_for_year(ind, target_data_yr)[0]
