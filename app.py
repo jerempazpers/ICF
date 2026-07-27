@@ -587,17 +587,16 @@ with tabs[0]:
 
         # ── Cas normal : calcul ICF ─────────────────────────────────────────
         else:
-            # ICF 2025 = score calculé à l'année 2024 (target_data_yr)
-            # La courbe affiche les scores PAR ANNÉE DE DONNÉES (2024 sur l'axe X)
-            # Le label "ICF 2025" signifie "calculé sur les données jusqu'en 2024"
-            # → on lit gs à l'index target_data_yr, pas icf_year
-            if target_data_yr in YEARS_AXIS:
-                icf_last = round(float(gs[YEARS_AXIS.index(target_data_yr)]), 1)
-            else:
-                icf_last = round(float(np.mean([
-                    compute_score_for_year(ind, target_data_yr)[0]
-                    for ind in data.values()
-                ])), 1)
+            # ICF 2025 = pour chaque indicateur, score sur fenêtre [2015, 2024]
+            # = compute_score_for_year(ind, target_data_yr=2024)
+            # On calcule DIRECTEMENT, sans passer par gs (qui utilise build_series
+            # avec des fenêtres variables selon les données de chaque indicateur).
+            # Cela garantit que tous les indicateurs sont comparés sur la MÊME fenêtre.
+            icf_scores_direct = {}
+            for key, ind in data.items():
+                sc, _, _ = compute_score_for_year(ind, target_data_yr)
+                icf_scores_direct[key] = sc
+            icf_last = round(float(np.mean(list(icf_scores_direct.values()))), 1)
 
             c1.metric(f"ICF {icf_year}", f"{icf_last:.1f} / 100",
                       help=f"Données : {win_start}–{win_end} (fenêtre 10 ans)")
