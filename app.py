@@ -534,30 +534,34 @@ with tabs[0]:
 
         # ── Règle : données [N-9, N] → ICF de l'année N+1 ─────────────────
         # ICF 2025 = fenêtre 2015–2024.
-        # Règle stricte : target_data_yr = année où la MAJORITÉ des indicateurs
-        # ont des données RÉELLES. On n'extrapole pas pour le calcul de l'ICF.
+        # Règle stricte :
+        #   1. On ne dépasse jamais l'année courante comme données de référence
+        #   2. target = médiane des dernières années RÉELLES de chaque indicateur
+        #   3. Les indicateurs en retard sont extrapolés (signalé en info)
 
-        last_years    = {key: max(ind["years"]) for key, ind in data.items()}
+        import datetime
+        CURRENT_YEAR = datetime.datetime.now().year
+
+        # Données réelles = ind["years"] (ce que l'admin a saisi manuellement)
+        # On plafonne à CURRENT_YEAR pour éviter de compter des années futures
+        last_years    = {key: min(max(ind["years"]), CURRENT_YEAR)
+                         for key, ind in data.items()}
         first_years   = {key: min(ind["years"]) for key, ind in data.items()}
         first_data_yr = min(first_years.values())
         max_last      = max(last_years.values())
         min_last      = min(last_years.values())
 
-        # Année de référence = année où AU MOINS la moitié des indicateurs
-        # ont des données réelles. On trie les last_years et on prend la médiane.
+        # Médiane : résiste aux outliers (un seul indicateur à 2027 ne déplace pas tout)
         sorted_lasts   = sorted(last_years.values())
-        median_last    = sorted_lasts[len(sorted_lasts) // 2]   # médiane
+        median_last    = sorted_lasts[len(sorted_lasts) // 2]
 
-        # Mais on ne va pas plus loin que l'année où TOUS les indicateurs
-        # ont au moins une donnée réelle (sinon extrapolation pure = absurde)
-        # → si median_last > max année réelle d'un indicateur de > 2 ans : on limite
-        # Règle simple et robuste : target = année où >= 50% des indicateurs ont des données
-        target_data_yr = median_last
+        # Garde supplémentaire : si la médiane dépasse l'année courante, on la plafonne
+        target_data_yr = min(median_last, CURRENT_YEAR)
         icf_year       = target_data_yr + 1
         win_start      = target_data_yr - 9
         win_end        = target_data_yr
 
-        # Indicateurs sans données réelles pour target_data_yr
+        # Indicateurs sans données réelles pour target_data_yr (seront extrapolés)
         late_inds  = {key: data[key]["label"]
                       for key, yr in last_years.items() if yr < target_data_yr}
         # Indicateurs plus avancés que target
@@ -644,19 +648,32 @@ with tabs[0]:
                     )
                     st.rerun()
 
-                # Affiche les scores déjà figés
+                # Affiche les scores déjà figés + option suppression
                 frozen_summary = {}
                 for k, ind2 in data.items():
                     fs = ind2.get("frozen_scores", {})
                     if fs:
                         for yr, sc in fs.items():
-                            frozen_summary.setdefault(yr, {})[ind2["label"]] = sc
+                            frozen_summary.setdefault(yr, {})[k] = (ind2["label"], sc)
                 if frozen_summary:
                     st.markdown("**Scores déjà figés :**")
                     for yr in sorted(frozen_summary):
-                        avg = round(float(np.mean(list(frozen_summary[yr].values()))), 1)
-                        st.caption(f"• {yr} → ICF moyen figé : **{avg}** "
-                                   f"({len(frozen_summary[yr])} indicateurs)")
+                        vals  = list(frozen_summary[yr].values())
+                        avg   = round(float(np.mean([v[1] for v in vals])), 1)
+                        n     = len(vals)
+                        col_info, col_del = st.columns([4, 1])
+                        col_info.caption(
+                            f"• {yr} → ICF moyen figé : **{avg}** ({n} indicateurs)"
+                        )
+                        if col_del.button(f"🗑 {yr}", key=f"del_frozen_global_{yr}",
+                                          help=f"Supprimer tous les scores figés de {yr}"):
+                            for k2 in list(data.keys()):
+                                fs2 = st.session_state.data[k2].get("frozen_scores", {})
+                                if yr in fs2:
+                                    del st.session_state.data[k2]["frozen_scores"][yr]
+                            st.session_state.saved_data = copy.deepcopy(st.session_state.data)
+                            write_save(st.session_state.saved_data)
+                            st.rerun()
 
         fig_g = go.Figure()
         fig_g.add_trace(go.Scatter(
