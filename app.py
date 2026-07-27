@@ -533,24 +533,40 @@ with tabs[0]:
         ag, bg = np.polyfit(YEARS_AXIS, gs, 1)
 
         # ── Règle : données [N-9, N] → ICF de l'année N+1 ─────────────────
-        # ICF 2025 = scores calculés sur la fenêtre 2015–2024 (10 ans)
-        # = compute_score_for_year(target=2024) avec win [2024-9, 2024] = [2015, 2024] ✓
+        # ICF 2025 = fenêtre 2015–2024.
+        # Règle stricte : target_data_yr = année où la MAJORITÉ des indicateurs
+        # ont des données RÉELLES. On n'extrapole pas pour le calcul de l'ICF.
 
-        # Dernière année de données pour chaque indicateur
-        last_years     = {key: max(ind["years"]) for key, ind in data.items()}
-        first_years    = {key: min(ind["years"]) for key, ind in data.items()}
-        max_last       = max(last_years.values())   # borne haute (indicateur le plus à jour)
-        # ICF calculable = basé sur l'indicateur le MOINS avancé
-        min_last       = min(last_years.values())
-        icf_year       = min_last + 1               # ICF publié = min_last + 1
-        target_data_yr = min_last                   # dernière année de données commune
-        win_start      = target_data_yr - 9         # début fenêtre (ex: 2024-9=2015)
-        win_end        = target_data_yr             # fin fenêtre (ex: 2024)
-        first_data_yr  = min(first_years.values())  # toute première donnée disponible
+        last_years    = {key: max(ind["years"]) for key, ind in data.items()}
+        first_years   = {key: min(ind["years"]) for key, ind in data.items()}
+        first_data_yr = min(first_years.values())
+        max_last      = max(last_years.values())
+        min_last      = min(last_years.values())
+
+        # Année de référence = année où AU MOINS la moitié des indicateurs
+        # ont des données réelles. On trie les last_years et on prend la médiane.
+        sorted_lasts   = sorted(last_years.values())
+        median_last    = sorted_lasts[len(sorted_lasts) // 2]   # médiane
+
+        # Mais on ne va pas plus loin que l'année où TOUS les indicateurs
+        # ont au moins une donnée réelle (sinon extrapolation pure = absurde)
+        # → si median_last > max année réelle d'un indicateur de > 2 ans : on limite
+        # Règle simple et robuste : target = année où >= 50% des indicateurs ont des données
+        target_data_yr = median_last
+        icf_year       = target_data_yr + 1
+        win_start      = target_data_yr - 9
+        win_end        = target_data_yr
+
+        # Indicateurs sans données réelles pour target_data_yr
+        late_inds  = {key: data[key]["label"]
+                      for key, yr in last_years.items() if yr < target_data_yr}
+        # Indicateurs plus avancés que target
+        ahead_inds = {key: data[key]["label"]
+                      for key, yr in last_years.items() if yr > target_data_yr}
 
         c1, c2, c3, c4 = st.columns(4)
 
-        # ── Garde 1 : pas assez d'historique (< 10 ans de données) ──────────
+        # ── Garde : pas assez d'historique ───────────────────────────────────
         if win_start < first_data_yr:
             nb_years_avail = target_data_yr - first_data_yr + 1
             c1.metric(f"ICF {icf_year}", "— / 100")
@@ -560,32 +576,12 @@ with tabs[0]:
             st.error(
                 f"❌ **Impossible de calculer l'ICF {icf_year}.** "
                 f"Il faut 10 années de données ({win_start}–{win_end}), "
-                f"mais les premières données disponibles remontent à {first_data_yr} "
-                f"({nb_years_avail} an{'s' if nb_years_avail > 1 else ''} disponible{'s' if nb_years_avail > 1 else ''})."
-            )
-            # Indicateurs en retard malgré tout
-            late_ind = {k: data[k]["label"] for k in last_years
-                        if last_years[k] < max_last}
-            if late_ind:
-                st.warning(
-                    f"⚠️ Ces indicateurs n'ont pas de données jusqu'en {max_last} : "
-                    + ", ".join(late_ind.values())
-                )
-
-        # ── Garde 2 : données futures manquantes ─────────────────────────────
-        elif max_last < target_data_yr:
-            missing_years = list(range(max_last + 1, target_data_yr + 1))
-            missing_str   = ", ".join(str(y) for y in missing_years)
-            c1.metric(f"ICF {icf_year}", "— / 100")
-            c2.metric("Tendance", f"{ag:+.2f} pts/an")
-            c3.metric("Projection 2030", f"{gs[-1]:.1f} / 100")
-            c4.metric("Indicateurs actifs", len(data))
-            st.error(
-                f"❌ **Impossible de calculer l'ICF {icf_year}.** "
-                f"Les données pour {missing_str} sont manquantes dans tous les indicateurs."
+                f"mais les premières données remontent à {first_data_yr} "
+                f"({nb_years_avail} an{'s' if nb_years_avail > 1 else ''} "
+                f"disponible{'s' if nb_years_avail > 1 else ''} au lieu de 10)."
             )
 
-        # ── Cas normal : calcul ICF ───────────────────────────────────────────
+        # ── Cas normal : calcul ICF ────────────────────────────────────────────
         else:
             icf_scores_by_ind = {}
             for key, ind in data.items():
@@ -593,22 +589,37 @@ with tabs[0]:
                 icf_scores_by_ind[key] = sc
             icf_last = round(float(np.mean(list(icf_scores_by_ind.values()))), 1)
 
-            # Indicateurs en retard (pas à jour jusqu'à max_last)
-            late = {key: ind["label"] for key, ind in data.items()
-                    if max(ind["years"]) < max_last}
-
             c1.metric(f"ICF {icf_year}", f"{icf_last:.1f} / 100",
                       help=f"Données utilisées : {win_start}–{win_end} (fenêtre 10 ans)")
             c2.metric("Tendance",           f"{ag:+.2f} pts/an")
             c3.metric("Projection 2030",    f"{gs[-1]:.1f} / 100")
             c4.metric("Indicateurs actifs", len(data))
 
-            if late:
-                late_str = ", ".join(late.values())
-                st.warning(
-                    f"⚠️ Certains indicateurs peuvent encore être mis à jour jusqu'en "
-                    f"**{max_last}** pour calculer **ICF {max_last + 1}** : {late_str}."
+            # Indicateurs extrapolés (en retard)
+            if late_inds:
+                late_str = ", ".join(late_inds.values())
+                st.info(
+                    f"ℹ️ Les indicateurs suivants n'ont pas encore de données "
+                    f"pour {win_end} — leur score a été extrapolé par régression : "
+                    f"{late_str}."
                 )
+            # Indicateurs plus avancés → ICF suivant possible
+            if ahead_inds:
+                ahead_str = ", ".join(ahead_inds.values())
+                next_target = max_last
+                # Vérifie si tous les indicateurs ont atteint max_last
+                all_at_max = all(yr >= max_last for yr in last_years.values())
+                if all_at_max:
+                    st.success(
+                        f"✅ Tous les indicateurs ont des données jusqu'en {max_last}. "
+                        f"**ICF {max_last + 1}** peut être calculé !"
+                    )
+                else:
+                    st.warning(
+                        f"⚠️ Certains indicateurs ont des données jusqu'en {max_last} "
+                        f"({ahead_str}). Mettez les autres à jour pour calculer "
+                        f"**ICF {max_last + 1}**."
+                    )
 
         # ── Panneau admin : geler les scores d'une année ────────────────────
         if IS_ADMIN:
