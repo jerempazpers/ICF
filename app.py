@@ -238,12 +238,41 @@ def build_series(ind):
     }
 
 def compute_global(data):
-    """Moyenne des scores par année sur tous les indicateurs."""
+    """Moyenne des scores par année sur tous les indicateurs (pour la courbe de projection)."""
     all_scores = []
     for ind in data.values():
         s = build_series(ind)
         all_scores.append(s["scores"])
     return np.round(np.nanmean(np.vstack(all_scores), axis=0), 2)
+
+def get_frozen_icf_series(data):
+    """
+    Retourne la série des ICF gelés (definitifs) par année ICF.
+    ICF année X = moyenne des frozen_scores[str(X)] de tous les indicateurs.
+    Si un indicateur n'a pas de frozen_score pour X, on l'exclut de la moyenne.
+    Retourne un dict {annee_icf: icf_moyen}.
+    """
+    # Collecte tous les frozen_scores de tous les indicateurs
+    all_frozen = {}  # {str_year: [scores...]}
+    for ind in data.values():
+        for yr_str, sc in ind.get("frozen_scores", {}).items():
+            all_frozen.setdefault(yr_str, []).append(sc)
+    # Moyenne par année
+    return {int(yr): round(float(np.mean(scs)), 1)
+            for yr, scs in sorted(all_frozen.items())}
+
+def compute_icf_for_year(data, icf_year):
+    """
+    Calcule l'ICF d'une année donnée à la volée (non figé).
+    ICF année X = moyenne de compute_score_for_year(ind, X-1) pour tous les indicateurs.
+    Fenêtre : [X-10, X-1] (10 ans de données).
+    """
+    target = icf_year - 1
+    scores = []
+    for ind in data.values():
+        sc, _, _ = compute_score_for_year(ind, target)
+        scores.append(sc)
+    return round(float(np.mean(scores)), 1)
 
 def freeze_year(key, target_year):
     """
@@ -712,45 +741,97 @@ with tabs[0]:
                                 write_save(st.session_state.saved_data)
                                 st.rerun()
 
+        # ── Graphique ICF ─────────────────────────────────────────────────────
+        # La courbe principale = ICF figés (scores définitifs, immuables)
+        # + le point courant calculé à la volée (non figé, en attente de gel)
+        # + projection linéaire sur les ICF connus
+
+        frozen_icf = get_frozen_icf_series(data)  # {2025: 48.1, 2026: ...}
+
+        # Point courant (non figé) — affiché différemment
+        current_icf_val = compute_icf_for_year(data, icf_year)
+
+        # Tous les points à afficher sur la courbe
+        all_icf_years  = sorted(set(list(frozen_icf.keys()) + [icf_year]))
+        all_icf_vals   = [frozen_icf.get(y, current_icf_val if y == icf_year else np.nan)
+                          for y in all_icf_years]
+        frozen_mask    = [y in frozen_icf for y in all_icf_years]
+
+        # Régression sur les ICF figés pour projection
+        if len(frozen_icf) >= 2:
+            fx = list(frozen_icf.keys()); fy = list(frozen_icf.values())
+            fa, fb = np.polyfit(fx, fy, 1)
+            proj_years = list(range(min(all_icf_years), 2031))
+            proj_vals  = [fa*y+fb for y in proj_years]
+        elif len(frozen_icf) == 1:
+            # Un seul point : ligne horizontale
+            proj_years = list(range(min(all_icf_years), 2031))
+            proj_vals  = [list(frozen_icf.values())[0]] * len(proj_years)
+        else:
+            proj_years, proj_vals = [], []
+
         fig_g = go.Figure()
-        fig_g.add_trace(go.Scatter(
-            x=YEARS_AXIS, y=[ag*y+bg for y in YEARS_AXIS],
-            mode="lines", name="Projection linéaire",
-            line=dict(color=RED, dash="dash", width=1.5),
-        ))
-        fig_g.add_trace(go.Scatter(
-            x=YEARS_AXIS, y=gs, mode="lines+markers+text",
-            name="ICF Global",
-            line=dict(color=BLUE, width=2.5), marker=dict(size=7),
-            text=[f"{v:.1f}" for v in gs],
-            textposition="top center", textfont=dict(size=10),
-        ))
+
+        # Projection en pointillés
+        if proj_years:
+            fig_g.add_trace(go.Scatter(
+                x=proj_years, y=proj_vals,
+                mode="lines", name="Tendance (projection)",
+                line=dict(color=RED, dash="dash", width=1.5),
+            ))
+
+        # ICF figés (points solides bleus)
+        frozen_x = [y for y in all_icf_years if y in frozen_icf]
+        frozen_y = [frozen_icf[y] for y in frozen_x]
+        if frozen_x:
+            fig_g.add_trace(go.Scatter(
+                x=frozen_x, y=frozen_y,
+                mode="lines+markers+text", name="ICF figé (définitif)",
+                line=dict(color=BLUE, width=2.5),
+                marker=dict(size=9, color=BLUE),
+                text=[f"{v:.1f}" for v in frozen_y],
+                textposition="top center", textfont=dict(size=10),
+            ))
+
+        # ICF courant non figé (point orange, en attente)
+        if icf_year not in frozen_icf:
+            fig_g.add_trace(go.Scatter(
+                x=[icf_year], y=[current_icf_val],
+                mode="markers+text", name=f"ICF {icf_year} (provisoire)",
+                marker=dict(size=11, color="#F5A623",
+                            symbol="circle-open", line=dict(width=2.5, color="#F5A623")),
+                text=[f"{current_icf_val:.1f}"],
+                textposition="top center", textfont=dict(size=10, color="#F5A623"),
+            ))
+
         fig_g.update_layout(
-            title="Évolution ICF Global — moyenne des indices normalisés",
+            title="Évolution ICF Global",
             height=460,
-            xaxis=dict(tickvals=YEARS_AXIS, tickangle=45),
-            yaxis=dict(range=[0, 100], title="Score moyen (0–100)"),
+            xaxis=dict(tickvals=list(range(2015, 2031)), tickangle=45, title="Année ICF"),
+            yaxis=dict(range=[0, 100], title="Score ICF (0–100)"),
             legend=dict(orientation="h", y=-0.25),
             margin=dict(l=50, r=20, t=55, b=90),
         )
         st.plotly_chart(fig_g, use_container_width=True)
 
-        # ── Tableau récap scores par indicateur ──────────────────────────────
+        # ── Tableau récap indices par indicateur (pour l'année ICF sélectionnée) ─
         all_real_years = sorted(set(
             y for ind in data.values() for y in ind["years"]
             if y <= CURRENT_YEAR
         ))
-        st.subheader(f"Scores par indicateur ({all_real_years[0]}–{all_real_years[-1]})")
-        series_cache = {key: build_series(ind) for key, ind in data.items()}
+        st.subheader(f"Scores par indicateur (fenêtre {win_start}–{win_end} → ICF {icf_year})")
         rows = {}
         for key, ind in data.items():
-            s   = series_cache[key]
             row = {}
             for y in all_real_years:
-                idx = YEARS_AXIS.index(y)
-                row[str(y)] = f"{s['scores'][idx]:.1f}" if y in ind["years"] else "—"
+                sc, _, _ = compute_score_for_year(ind, y)
+                row[str(y+1)] = f"{sc:.1f}"  # score de l'année y = ICF y+1
             rows[ind["label"]] = row
-        df_recap = pd.DataFrame(rows).T
+        # On n'affiche que les colonnes ICF (y+1) de 2016 à icf_year
+        icf_cols = [str(y+1) for y in all_real_years if y+1 <= icf_year]
+        rows_filtered = {label: {c: row.get(c,"—") for c in icf_cols}
+                         for label, row in rows.items()}
+        df_recap = pd.DataFrame(rows_filtered).T
         st.dataframe(df_recap, use_container_width=True)
 
 # ════════════════════════════════════════════════════════════════════════════
