@@ -585,95 +585,116 @@ with tabs[0]:
                 f"disponible{'s' if nb_years_avail > 1 else ''} au lieu de 10)."
             )
 
-        # ── Cas normal : calcul ICF ────────────────────────────────────────────
+        # ── Cas normal : calcul ICF ─────────────────────────────────────────
         else:
-            icf_scores_by_ind = {}
-            for key, ind in data.items():
-                sc, _, _ = compute_score_for_year(ind, target_data_yr)
-                icf_scores_by_ind[key] = sc
-            icf_last = round(float(np.mean(list(icf_scores_by_ind.values()))), 1)
+            # ICF métrique = même valeur que la courbe (gs à l'index icf_year)
+            # gs = compute_global(data) = moyenne build_series pour chaque indicateur
+            # On lit directement gs pour garantir la cohérence avec le graphique
+            if icf_year in YEARS_AXIS:
+                icf_last = round(float(gs[YEARS_AXIS.index(icf_year)]), 1)
+            else:
+                icf_last = round(float(np.mean([
+                    compute_score_for_year(ind, target_data_yr)[0]
+                    for ind in data.values()
+                ])), 1)
 
             c1.metric(f"ICF {icf_year}", f"{icf_last:.1f} / 100",
-                      help=f"Données utilisées : {win_start}–{win_end} (fenêtre 10 ans)")
+                      help=f"Données : {win_start}–{win_end} (fenêtre 10 ans)")
             c2.metric("Tendance",           f"{ag:+.2f} pts/an")
             c3.metric("Projection 2030",    f"{gs[-1]:.1f} / 100")
             c4.metric("Indicateurs actifs", len(data))
 
-            # Indicateurs extrapolés (en retard)
             if late_inds:
-                late_str = ", ".join(late_inds.values())
                 st.info(
-                    f"ℹ️ Les indicateurs suivants n'ont pas encore de données "
-                    f"pour {win_end} — leur score a été extrapolé par régression : "
-                    f"{late_str}."
+                    f"ℹ️ Ces indicateurs n'ont pas de données pour {win_end} "
+                    f"— extrapolés par régression : {', '.join(late_inds.values())}."
                 )
-            # Indicateurs plus avancés → ICF suivant possible
             if ahead_inds:
-                ahead_str = ", ".join(ahead_inds.values())
-                next_target = max_last
-                # Vérifie si tous les indicateurs ont atteint max_last
                 all_at_max = all(yr >= max_last for yr in last_years.values())
                 if all_at_max:
-                    st.success(
-                        f"✅ Tous les indicateurs ont des données jusqu'en {max_last}. "
-                        f"**ICF {max_last + 1}** peut être calculé !"
-                    )
+                    st.success(f"✅ Tous les indicateurs ont des données jusqu'en {max_last}. "
+                               f"**ICF {max_last + 1}** peut être calculé !")
                 else:
                     st.warning(
-                        f"⚠️ Certains indicateurs ont des données jusqu'en {max_last} "
-                        f"({ahead_str}). Mettez les autres à jour pour calculer "
-                        f"**ICF {max_last + 1}**."
+                        f"⚠️ {', '.join(ahead_inds.values())} ont des données jusqu'en {max_last}. "
+                        f"Mettez les autres à jour pour calculer **ICF {max_last + 1}**."
                     )
 
-        # ── Panneau admin : geler les scores d'une année ────────────────────
+        # ── Panneau admin : geler les scores d'une année ─────────────────────
         if IS_ADMIN:
             with st.expander("🔒 Geler les scores d'une année (admin)"):
-                st.markdown(
-                    "Figer un score le rend permanent — il ne sera plus jamais "
-                    "recalculé, même si les données brutes changent. "
-                    "Utilise la **fenêtre glissante [année−9, année]**."
-                )
-                col_yr, col_btn = st.columns([1, 2])
-                freeze_year_input = col_yr.number_input(
-                    "Année à geler", min_value=2015, max_value=2040,
-                    value=int(icf_year), step=1, key="freeze_year_global"
-                )
-                if col_btn.button(f"🔒 Geler l'ICF {freeze_year_input} pour tous les indicateurs",
-                                  key="freeze_all", type="primary"):
-                    results = freeze_year_all(int(freeze_year_input))
-                    icf_frozen = round(float(np.mean(list(results.values()))), 2)
-                    st.success(
-                        f"✅ Scores {freeze_year_input} figés pour tous les indicateurs.\n"
-                        f"ICF {freeze_year_input} = **{icf_frozen}**"
-                    )
-                    st.rerun()
+                # Années gelables :
+                #   min = first_data_yr + 10  (10 ans de données disponibles)
+                #   max = icf_year            (pas d'années sans données réelles)
+                freeze_min = first_data_yr + 10
+                freeze_max = icf_year
 
-                # Affiche les scores déjà figés + option suppression
+                if freeze_min > freeze_max:
+                    st.warning(
+                        f"Pas encore assez de données pour geler un ICF. "
+                        f"Il faut des données jusqu'en {freeze_min - 1} minimum."
+                    )
+                else:
+                    st.markdown(
+                        f"Années gelables : **{freeze_min}** à **{freeze_max}** "
+                        f"(10 ans de données réelles requis)."
+                    )
+                    col_yr, col_btn = st.columns([1, 2])
+                    freeze_year_input = int(col_yr.number_input(
+                        "Année à geler",
+                        min_value=freeze_min, max_value=freeze_max,
+                        value=min(int(icf_year), freeze_max),
+                        step=1, key="freeze_year_global"
+                    ))
+                    fy_win = f"{freeze_year_input - 10}–{freeze_year_input - 1}"
+                    col_yr.caption(f"Fenêtre : {fy_win}")
+
+                    if col_btn.button(
+                        f"🔒 Geler ICF {freeze_year_input} pour tous les indicateurs",
+                        key="freeze_all", type="primary"
+                    ):
+                        results    = freeze_year_all(freeze_year_input)
+                        icf_frozen = round(float(np.mean(list(results.values()))), 1)
+                        st.success(f"✅ ICF {freeze_year_input} figé = **{icf_frozen}**")
+                        st.rerun()
+
+                # ── Tableau des ICF gelés ─────────────────────────────────────
                 frozen_summary = {}
                 for k, ind2 in data.items():
-                    fs = ind2.get("frozen_scores", {})
-                    if fs:
-                        for yr, sc in fs.items():
-                            frozen_summary.setdefault(yr, {})[k] = (ind2["label"], sc)
+                    for yr, sc in ind2.get("frozen_scores", {}).items():
+                        frozen_summary.setdefault(yr, {})[k] = (ind2["label"], sc)
+
                 if frozen_summary:
-                    st.markdown("**Scores déjà figés :**")
+                    st.markdown("---")
+                    st.markdown("**📋 ICF gelés — historique définitif**")
+                    frozen_rows = {}
                     for yr in sorted(frozen_summary):
-                        vals  = list(frozen_summary[yr].values())
-                        avg   = round(float(np.mean([v[1] for v in vals])), 1)
-                        n     = len(vals)
-                        col_info, col_del = st.columns([4, 1])
-                        col_info.caption(
-                            f"• {yr} → ICF moyen figé : **{avg}** ({n} indicateurs)"
-                        )
-                        if col_del.button(f"🗑 {yr}", key=f"del_frozen_global_{yr}",
-                                          help=f"Supprimer tous les scores figés de {yr}"):
-                            for k2 in list(data.keys()):
-                                fs2 = st.session_state.data[k2].get("frozen_scores", {})
-                                if yr in fs2:
-                                    del st.session_state.data[k2]["frozen_scores"][yr]
-                            st.session_state.saved_data = copy.deepcopy(st.session_state.data)
-                            write_save(st.session_state.saved_data)
-                            st.rerun()
+                        row = {}
+                        scores_yr = []
+                        for k in data:
+                            fs = data[k].get("frozen_scores", {})
+                            if yr in fs:
+                                row[data[k]["label"]] = fs[yr]
+                                scores_yr.append(fs[yr])
+                            else:
+                                row[data[k]["label"]] = "—"
+                        row["🏆 ICF moyen"] = round(float(np.mean(scores_yr)), 1)
+                        frozen_rows[f"ICF {yr}"] = row
+                    df_frozen = pd.DataFrame(frozen_rows).T
+                    st.dataframe(df_frozen, use_container_width=True)
+
+                    st.markdown("**Supprimer une année gelée :**")
+                    cols_del = st.columns(min(len(frozen_summary), 6))
+                    for i, yr in enumerate(sorted(frozen_summary)):
+                        with cols_del[i % len(cols_del)]:
+                            if st.button(f"🗑 ICF {yr}", key=f"del_frozen_global_{yr}"):
+                                for k2 in list(data.keys()):
+                                    fs2 = st.session_state.data[k2].get("frozen_scores", {})
+                                    if yr in fs2:
+                                        del st.session_state.data[k2]["frozen_scores"][yr]
+                                st.session_state.saved_data = copy.deepcopy(st.session_state.data)
+                                write_save(st.session_state.saved_data)
+                                st.rerun()
 
         fig_g = go.Figure()
         fig_g.add_trace(go.Scatter(
@@ -698,32 +719,22 @@ with tabs[0]:
         )
         st.plotly_chart(fig_g, use_container_width=True)
 
-        # Années réelles : union de toutes les années réellement renseignées
+        # ── Tableau récap scores par indicateur ──────────────────────────────
         all_real_years = sorted(set(
             y for ind in data.values() for y in ind["years"]
+            if y <= CURRENT_YEAR
         ))
-
         st.subheader(f"Scores par indicateur ({all_real_years[0]}–{all_real_years[-1]})")
-
-        # Rebuild series une seule fois par indicateur pour éviter les doublons
         series_cache = {key: build_series(ind) for key, ind in data.items()}
-
         rows = {}
         for key, ind in data.items():
-            s = series_cache[key]
+            s   = series_cache[key]
             row = {}
             for y in all_real_years:
-                if y in ind["years"]:
-                    # Valeur réelle : on prend le score correspondant dans YEARS_AXIS
-                    idx = YEARS_AXIS.index(y)
-                    row[str(y)] = f"{s['scores'][idx]:.1f}"
-                else:
-                    # Pas de donnée réelle cette année pour cet indicateur
-                    row[str(y)] = "—"
+                idx = YEARS_AXIS.index(y)
+                row[str(y)] = f"{s['scores'][idx]:.1f}" if y in ind["years"] else "—"
             rows[ind["label"]] = row
-
         df_recap = pd.DataFrame(rows).T
-        # Colorer les cellules "—" en gris via style
         st.dataframe(df_recap, use_container_width=True)
 
 # ════════════════════════════════════════════════════════════════════════════
