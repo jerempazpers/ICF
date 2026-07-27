@@ -746,37 +746,54 @@ with tabs[0]:
                                 st.rerun()
 
         # ── Graphique ICF ─────────────────────────────────────────────────────
-        # La courbe principale = ICF figés (scores définitifs, immuables)
-        # + le point courant calculé à la volée (non figé, en attente de gel)
-        # + projection linéaire sur les ICF connus
-
-        frozen_icf = get_frozen_icf_series(data)  # {2025: 48.1, 2026: ...}
-
-        # Point courant (non figé) — affiché différemment
+        frozen_icf      = get_frozen_icf_series(data)
         current_icf_val = compute_icf_for_year(data, icf_year)
 
-        # Tous les points à afficher sur la courbe
-        all_icf_years  = sorted(set(list(frozen_icf.keys()) + [icf_year]))
-        all_icf_vals   = [frozen_icf.get(y, current_icf_val if y == icf_year else np.nan)
-                          for y in all_icf_years]
-        frozen_mask    = [y in frozen_icf for y in all_icf_years]
+        # ── Série historique 2015–2024 ────────────────────────────────────────
+        # ICF calculé sur les données disponibles à l'époque, fenêtre incomplète
+        # Affiché en gris pour signaler qu'ils sont indicatifs, pas méthodologiquement stricts
+        HIST_START = 2015
+        HIST_END   = 2024  # inclus — avant la fenêtre complète de 10 ans
+        hist_years, hist_vals = [], []
+        for yr in range(HIST_START, HIST_END + 1):
+            target_yr = yr - 1   # données jusqu'à yr-1
+            # Prend toutes les données disponibles jusqu'à target_yr
+            scores_yr = []
+            for ind2 in data.values():
+                avail_years = [y for y in ind2["years"] if y <= target_yr]
+                if not avail_years:
+                    continue
+                # Fenêtre : max 10 ans, ou moins si pas assez d'historique
+                win_end2   = max(avail_years)
+                win_start2 = max(min(avail_years), win_end2 - 9)
+                win_yrs    = list(range(win_start2, win_end2 + 1))
+                a2, b2     = np.polyfit(ind2["years"], ind2["vals"], 1)
+                rby2       = dict(zip(ind2["years"], ind2["vals"]))
+                wv         = np.array([rby2.get(y, a2*y+b2) for y in win_yrs])
+                mu2, sg2   = wv.mean(), wv.std(ddof=1) if len(wv)>1 else 1.0
+                if sg2 == 0: sg2 = 1.0
+                val2  = rby2.get(win_end2, a2*win_end2+b2)
+                zn2   = float(np.clip(((val2-mu2)/sg2+3)/6, 0, 1)*100)
+                sc2   = round(100 - zn2 if ind2["inv"] else zn2, 1)
+                scores_yr.append(sc2)
+            if scores_yr:
+                hist_years.append(yr)
+                hist_vals.append(round(float(np.mean(scores_yr)), 1))
 
-        # Régression sur les ICF figés pour projection
-        if len(frozen_icf) >= 2:
-            fx = list(frozen_icf.keys()); fy = list(frozen_icf.values())
-            fa, fb = np.polyfit(fx, fy, 1)
-            proj_years = list(range(min(all_icf_years), 2031))
+        # Régression sur ICF figés pour projection (ou sur historique si pas encore de gel)
+        ref_x = list(frozen_icf.keys()) if len(frozen_icf) >= 2 else hist_years
+        ref_y = list(frozen_icf.values()) if len(frozen_icf) >= 2 else hist_vals
+        if len(ref_x) >= 2:
+            fa, fb     = np.polyfit(ref_x, ref_y, 1)
+            proj_start = min(ref_x + ([icf_year] if icf_year not in frozen_icf else []))
+            proj_years = list(range(proj_start, 2031))
             proj_vals  = [fa*y+fb for y in proj_years]
-        elif len(frozen_icf) == 1:
-            # Un seul point : ligne horizontale
-            proj_years = list(range(min(all_icf_years), 2031))
-            proj_vals  = [list(frozen_icf.values())[0]] * len(proj_years)
         else:
             proj_years, proj_vals = [], []
 
         fig_g = go.Figure()
 
-        # Projection en pointillés
+        # Pointillés de projection
         if proj_years:
             fig_g.add_trace(go.Scatter(
                 x=proj_years, y=proj_vals,
@@ -784,8 +801,21 @@ with tabs[0]:
                 line=dict(color=RED, dash="dash", width=1.5),
             ))
 
-        # ICF figés (points solides bleus)
-        frozen_x = [y for y in all_icf_years if y in frozen_icf]
+        # Série historique 2015–2024 en gris (fenêtre incomplète, indicatif)
+        if hist_years:
+            fig_g.add_trace(go.Scatter(
+                x=hist_years, y=hist_vals,
+                mode="lines+markers+text",
+                name="ICF historique (fenêtre incomplète)",
+                line=dict(color="#6B7280", width=1.5, dash="dot"),
+                marker=dict(size=6, color="#6B7280"),
+                text=[f"{v:.1f}" for v in hist_vals],
+                textposition="top center",
+                textfont=dict(size=9, color="#6B7280"),
+            ))
+
+        # ICF figés (points bleus pleins — définitifs)
+        frozen_x = sorted(frozen_icf.keys())
         frozen_y = [frozen_icf[y] for y in frozen_x]
         if frozen_x:
             fig_g.add_trace(go.Scatter(
@@ -797,7 +827,7 @@ with tabs[0]:
                 textposition="top center", textfont=dict(size=10),
             ))
 
-        # ICF courant non figé (point orange, en attente)
+        # ICF courant non figé (point orange creux — provisoire)
         if icf_year not in frozen_icf:
             fig_g.add_trace(go.Scatter(
                 x=[icf_year], y=[current_icf_val],
@@ -813,8 +843,8 @@ with tabs[0]:
             height=460,
             xaxis=dict(tickvals=list(range(2015, 2031)), tickangle=45, title="Année ICF"),
             yaxis=dict(range=[0, 100], title="Score ICF (0–100)"),
-            legend=dict(orientation="h", y=-0.25),
-            margin=dict(l=50, r=20, t=55, b=90),
+            legend=dict(orientation="h", y=-0.28),
+            margin=dict(l=50, r=20, t=55, b=100),
         )
         st.plotly_chart(fig_g, use_container_width=True)
 
