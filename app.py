@@ -532,18 +532,10 @@ with tabs[0]:
         gs     = compute_global(data)
         ag, bg = np.polyfit(YEARS_AXIS, gs, 1)
 
-        # ── Règle : données [N-9, N] → ICF de l'année N+1 ─────────────────
-        # ICF 2025 = fenêtre 2015–2024.
-        # Règle stricte :
-        #   1. On ne dépasse jamais l'année courante comme données de référence
-        #   2. target = médiane des dernières années RÉELLES de chaque indicateur
-        #   3. Les indicateurs en retard sont extrapolés (signalé en info)
-
+        # ── Sélecteur d'année ICF (admin) ou calcul automatique ─────────────
         import datetime
         CURRENT_YEAR = datetime.datetime.now().year
 
-        # Données réelles = ind["years"] (ce que l'admin a saisi manuellement)
-        # On plafonne à CURRENT_YEAR pour éviter de compter des années futures
         last_years    = {key: min(max(ind["years"]), CURRENT_YEAR)
                          for key, ind in data.items()}
         first_years   = {key: min(ind["years"]) for key, ind in data.items()}
@@ -551,20 +543,44 @@ with tabs[0]:
         max_last      = max(last_years.values())
         min_last      = min(last_years.values())
 
-        # Médiane : résiste aux outliers (un seul indicateur à 2027 ne déplace pas tout)
-        sorted_lasts   = sorted(last_years.values())
-        median_last    = sorted_lasts[len(sorted_lasts) // 2]
+        # Années ICF calculables : première_donnée+10 → max_last+1
+        icf_min_calculable = first_data_yr + 10   # ex: 2015+10=2025
+        icf_max_calculable = max_last + 1          # ex: 2025+1=2026
 
-        # Garde supplémentaire : si la médiane dépasse l'année courante, on la plafonne
-        target_data_yr = min(median_last, CURRENT_YEAR)
-        icf_year       = target_data_yr + 1
-        win_start      = target_data_yr - 9
-        win_end        = target_data_yr
+        # Sélecteur d'année ICF pour l'admin (stocké en session)
+        if "selected_icf_year" not in st.session_state:
+            # Par défaut : ICF de l'année la plus récente calculable
+            st.session_state.selected_icf_year = min(icf_max_calculable,
+                                                      CURRENT_YEAR + 1)
 
-        # Indicateurs sans données réelles pour target_data_yr (seront extrapolés)
+        if IS_ADMIN:
+            sel_col1, sel_col2 = st.columns([2, 6])
+            with sel_col1:
+                chosen = st.number_input(
+                    "📅 Afficher l'ICF de l'année",
+                    min_value=icf_min_calculable,
+                    max_value=icf_max_calculable,
+                    value=int(st.session_state.selected_icf_year),
+                    step=1, key="icf_year_selector",
+                    help=f"Années disponibles : {icf_min_calculable}–{icf_max_calculable}"
+                )
+                st.session_state.selected_icf_year = int(chosen)
+            with sel_col2:
+                st.caption(
+                    f"ICF {chosen} = scores calculés sur les données "
+                    f"**{int(chosen)-10}–{int(chosen)-1}** (fenêtre 10 ans)"
+                )
+        else:
+            chosen = min(icf_max_calculable, CURRENT_YEAR + 1)
+
+        icf_year       = int(chosen)
+        target_data_yr = icf_year - 1        # dernière année de données utilisée
+        win_start      = target_data_yr - 9  # 2025-1-9=2015
+        win_end        = target_data_yr      # 2024
+
+        # Indicateurs sans données réelles pour target_data_yr
         late_inds  = {key: data[key]["label"]
                       for key, yr in last_years.items() if yr < target_data_yr}
-        # Indicateurs plus avancés que target
         ahead_inds = {key: data[key]["label"]
                       for key, yr in last_years.items() if yr > target_data_yr}
 
