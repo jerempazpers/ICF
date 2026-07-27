@@ -276,21 +276,22 @@ def compute_icf_for_year(data, icf_year):
 
 def freeze_year(key, target_year):
     """
-    Calcule et fige définitivement le score d'une année pour un indicateur.
-    Fenêtre glissante [target_year-9, target_year].
+    Fige définitivement l'ICF d'une année pour un indicateur.
+    ICF année X = compute_score_for_year(ind, X-1) — fenêtre [X-10, X-1].
+    Stocké sous frozen_scores[str(X)].
     """
     ind   = st.session_state.data[key]
-    score, mu, sigma = compute_score_for_year(ind, target_year)
+    # On score sur X-1 (dernière année de données), pas sur X
+    score, mu, sigma = compute_score_for_year(ind, target_year - 1)
     if "frozen_scores" not in st.session_state.data[key]:
         st.session_state.data[key]["frozen_scores"] = {}
     st.session_state.data[key]["frozen_scores"][str(target_year)] = score
-    # Propage à saved_data et disque immédiatement
     st.session_state.saved_data = copy.deepcopy(st.session_state.data)
     write_save(st.session_state.saved_data)
     return score, mu, sigma
 
 def freeze_year_all(target_year):
-    """Fige le score de target_year pour TOUS les indicateurs en une fois."""
+    """Fige l'ICF de target_year pour TOUS les indicateurs en une fois."""
     results = {}
     for key in list(st.session_state.data.keys()):
         score, mu, sigma = freeze_year(key, target_year)
@@ -302,24 +303,27 @@ def freeze_year_all(target_year):
 # ════════════════════════════════════════════════════════════════════════════
 
 def score_fig(s, label):
+    # L'axe X = années d'indice = années de données + 1
+    # Ex : données 2024 → indice 2025
+    indice_axis = [y + 1 for y in YEARS_AXIS]
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=YEARS_AXIS, y=s["scores"], mode="lines",
-        name="Projection linéaire (2015–2030)",
+        x=indice_axis, y=s["scores"], mode="lines",
+        name="Projection linéaire",
         line=dict(color=RED, dash="dash", width=1.5),
-        hovertemplate="%{x}: %{y:.1f}<extra>Projection</extra>",
+        hovertemplate="Indice %{x}: %{y:.1f}<extra>Projection</extra>",
     ))
     fig.add_trace(go.Scatter(
-        x=YEARS_AXIS, y=s["real_scores"], mode="lines+markers",
-        name="Score réel",
+        x=indice_axis, y=s["real_scores"], mode="lines+markers",
+        name="Indice réel",
         line=dict(color=BLUE, width=2), marker=dict(size=7, color=BLUE),
         connectgaps=False,
-        hovertemplate="%{x}: %{y:.1f}<extra>Score réel</extra>",
+        hovertemplate="Indice %{x}: %{y:.1f}<extra>Indice réel</extra>",
     ))
     fig.update_layout(
-        title=f"Score normalisé — {label}", height=400,
-        xaxis=dict(tickvals=YEARS_AXIS, tickangle=45, title="Année"),
-        yaxis=dict(range=[0, 100], title="Score (0–100)"),
+        title=f"Indice normalisé — {label}", height=400,
+        xaxis=dict(tickvals=indice_axis, tickangle=45, title="Année de l'indice"),
+        yaxis=dict(range=[0, 100], title="Indice (0–100)"),
         legend=dict(orientation="h", y=-0.3),
         margin=dict(l=55, r=20, t=50, b=90),
     )
@@ -814,25 +818,69 @@ with tabs[0]:
         )
         st.plotly_chart(fig_g, use_container_width=True)
 
-        # ── Tableau récap indices par indicateur (pour l'année ICF sélectionnée) ─
+        # ── Tableau récap indices par indicateur avec code couleur ───────────
         all_real_years = sorted(set(
             y for ind in data.values() for y in ind["years"]
             if y <= CURRENT_YEAR
         ))
         st.subheader(f"Scores par indicateur (fenêtre {win_start}–{win_end} → ICF {icf_year})")
-        rows = {}
-        for key, ind in data.items():
-            row = {}
-            for y in all_real_years:
-                sc, _, _ = compute_score_for_year(ind, y)
-                row[str(y+1)] = f"{sc:.1f}"  # score de l'année y = ICF y+1
-            rows[ind["label"]] = row
-        # On n'affiche que les colonnes ICF (y+1) de 2016 à icf_year
-        icf_cols = [str(y+1) for y in all_real_years if y+1 <= icf_year]
-        rows_filtered = {label: {c: row.get(c,"—") for c in icf_cols}
-                         for label, row in rows.items()}
-        df_recap = pd.DataFrame(rows_filtered).T
-        st.dataframe(df_recap, use_container_width=True)
+
+        # Légende
+        st.markdown(
+            "<div style='display:flex;gap:20px;font-size:13px;margin-bottom:8px;'>"
+            "<span><span style='display:inline-block;width:14px;height:14px;"
+            "background:#1E4A8C;border-radius:3px;vertical-align:middle;margin-right:5px;'>"
+            "</span>Données réelles</span>"
+            "<span><span style='display:inline-block;width:14px;height:14px;"
+            "background:#5A3E7A;border-radius:3px;vertical-align:middle;margin-right:5px;'>"
+            "</span>Extrapolé (régression)</span>"
+            "</div>",
+            unsafe_allow_html=True
+        )
+
+        # Colonnes = années ICF (y+1), filtrées jusqu'à icf_year
+        icf_cols = [y+1 for y in all_real_years if y+1 <= icf_year]
+        ind_labels = [ind["label"] for ind in data.values()]
+
+        # Construit les valeurs et les couleurs cellule par cellule
+        cell_vals   = []  # une liste par colonne ICF
+        cell_colors = []  # couleur par cellule
+
+        for icf_col_yr in icf_cols:
+            data_yr = icf_col_yr - 1  # année de données correspondante
+            col_vals   = []
+            col_colors = []
+            for key, ind in data.items():
+                sc, _, _ = compute_score_for_year(ind, data_yr)
+                is_real  = data_yr in ind["years"]
+                col_vals.append(f"{sc:.1f}")
+                col_colors.append("#1E4A8C" if is_real else "#5A3E7A")
+            cell_vals.append(col_vals)
+            cell_colors.append(col_colors)
+
+        fig_table = go.Figure(data=[go.Table(
+            header=dict(
+                values=["<b>Indicateur</b>"] + [f"<b>ICF {y}</b>" for y in icf_cols],
+                fill_color="#0D1B2A",
+                font=dict(color="white", size=12),
+                align="center",
+                height=32,
+            ),
+            cells=dict(
+                values=[ind_labels] + cell_vals,
+                fill_color=[
+                    ["#0D1B2A"] * len(ind_labels)   # colonne indicateurs
+                ] + cell_colors,
+                font=dict(color="white", size=12),
+                align="center",
+                height=28,
+            )
+        )])
+        fig_table.update_layout(
+            margin=dict(l=0, r=0, t=0, b=0),
+            height=max(200, 40 + len(ind_labels) * 28 + 32),
+        )
+        st.plotly_chart(fig_table, use_container_width=True)
 
 # ════════════════════════════════════════════════════════════════════════════
 # ONGLETS INDIVIDUELS
@@ -842,14 +890,25 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
     with tabs[tab_idx]:
         s = build_series(ind)
 
-        last_yr = s["last_real_year"]
+        last_yr      = s["last_real_year"]          # dernière année de données brutes
+        indice_yr    = last_yr + 1                   # indice correspondant (ex: 2024→2025)
+        # Score de l'indice = compute sur last_yr (fenêtre [last_yr-9, last_yr])
+        indice_score, _, _ = compute_score_for_year(ind, last_yr)
+        prev_score_val = None
+        if last_yr - 1 in ind["years"]:
+            prev_sc, _, _ = compute_score_for_year(ind, last_yr - 1)
+            prev_score_val = prev_sc
+
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric(f"Score {last_yr}", f"{s['last_score']:.1f} / 100",
-                  help=f"Fenêtre de référence : {last_yr-9}–{last_yr}")
-        c2.metric("Tendance",           f"{s['slope']:+.2f} pts/an")
-        c3.metric("Projection 2030",    f"{s['proj_2030']:.1f} / 100")
-        if s["prev_score"] is not None:
-            c4.metric("Variation",      f"{s['last_score']-s['prev_score']:+.1f} pts")
+        c1.metric(f"Indice {indice_yr}",
+                  f"{indice_score:.1f} / 100",
+                  help=f"Calculé sur les données {last_yr-9}–{last_yr}")
+        c2.metric("Tendance",        f"{s['slope']:+.2f} pts/an")
+        c3.metric("Projection 2030", f"{s['proj_2030']:.1f} / 100")
+        if prev_score_val is not None:
+            c4.metric("Variation",
+                      f"{indice_score - prev_score_val:+.1f} pts",
+                      help=f"vs Indice {last_yr}")
 
         col_l, col_r = st.columns(2)
         with col_l:
@@ -916,17 +975,18 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
                                    key=f"freeze_{key}", type="primary"):
                     score, mu, sigma = freeze_year(key, int(fy))
                     st.success(
-                        f"✅ Score {fy} figé : **{score}** "
-                        f"(fenêtre {fy-9}–{fy}, μ={mu:.2f}, σ={sigma:.2f})"
+                        f"✅ ICF {fy} figé : **{score}** "
+                        f"(fenêtre {fy-10}–{fy-1}, μ={mu:.2f}, σ={sigma:.2f})"
                     )
                     st.rerun()
 
                 if frozen:
-                    st.markdown("**Scores figés pour cet indicateur :**")
+                    st.markdown("**ICF figés pour cet indicateur :**")
                     for yr in sorted(frozen):
-                        win_start = int(yr) - 9
-                        st.caption(f"• {yr} = **{frozen[yr]}** "
-                                   f"(fenêtre {win_start}–{yr})")
+                        win_s = int(yr) - 10
+                        win_e = int(yr) - 1
+                        st.caption(f"• ICF {yr} = **{frozen[yr]}** "
+                                   f"(fenêtre {win_s}–{win_e})")
                     # Option dégel
                     unfreeze_yr = st.selectbox(
                         "Dégeler une année (supprime le score figé)",
