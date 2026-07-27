@@ -140,52 +140,133 @@ if "data" not in st.session_state:
 # ════════════════════════════════════════════════════════════════════════════
 
 def z_apply_fixed(arr, mu, sigma, inv):
-    """Applique une normalisation Z-score avec mu/sigma fixes (référentiel figé)."""
+    """Applique une normalisation Z-score avec mu/sigma fixes."""
     arr = np.array(arr, float)
     if sigma == 0: return np.full(len(arr), 50.0)
     zn = np.clip(((arr - mu) / sigma + 3) / 6, 0, 1) * 100
     return np.round(100 - zn if inv else zn, 1)
 
-def build_series(ind):
+def compute_score_for_year(ind, target_year):
+    """
+    Calcule le score d'un indicateur pour une année cible donnée.
+    Fenêtre glissante : [target_year-9, target_year] (10 ans).
+    Si les données ne couvrent pas encore target_year, extrapole par régression.
+    """
     years = np.array(ind["years"]); vals = np.array(ind["vals"], float)
     a, b  = np.polyfit(years, vals, 1)
     rby   = dict(zip(ind["years"], ind["vals"]))
 
-    # ── Série de référence : exactement comme MATLAB ──────────────────────
-    # Toujours 2015 → max(2024, dernière année réelle), extrapolé aux extrémités
-    # MATLAB normalise toujours sur 10 pts fixes (2015-2024) complétés par régression
-    ref_end   = max(2024, int(years[-1]))
-    ref_years = list(range(2015, ref_end + 1))
-    ref_vals  = np.array([rby.get(y, a*y+b) for y in ref_years])
+    win_start = target_year - 9
+    win_years = list(range(win_start, target_year + 1))   # 10 ans glissants
+    win_vals  = np.array([rby.get(y, a*y+b) for y in win_years])
 
-    # μ et σ calculés UNE SEULE FOIS sur cette série de référence
-    # ddof=1 = écart-type non biaisé, identique à std() de MATLAB
-    mu    = ref_vals.mean()
-    sigma = ref_vals.std(ddof=1)
+    mu    = win_vals.mean()
+    sigma = win_vals.std(ddof=1)
+    if sigma == 0:
+        return 50.0, mu, sigma
 
-    # ── Application des μ/σ fixes à toute la plage 2015–2030 ─────────────
+    val_target = rby.get(target_year, a*target_year + b)
+    zn    = np.clip(((val_target - mu) / sigma + 3) / 6, 0, 1) * 100
+    score = round(float(100 - zn if ind["inv"] else zn), 1)
+    return score, round(float(mu), 4), round(float(sigma), 4)
+
+def build_series(ind):
+    """
+    Construit la série complète 2015-2030 pour affichage.
+    - Années avec frozen_scores : utilise le score figé
+    - Autres années réelles     : calcule avec fenêtre glissante [Y-9, Y]
+    - Années projetées          : régression sur les scores figés
+    """
+    years = np.array(ind["years"]); vals = np.array(ind["vals"], float)
+    a, b  = np.polyfit(years, vals, 1)
+    rby   = dict(zip(ind["years"], ind["vals"]))
+    frozen = ind.get("frozen_scores", {})   # {"2024": 21.6, ...}
+
+    # ── Calcul score pour chaque année réelle ─────────────────────────────
     all_v  = np.array([rby.get(y, a*y+b) for y in YEARS_AXIS])
     is_r   = np.array([y in rby for y in YEARS_AXIS])
-    scores = z_apply_fixed(all_v, mu, sigma, ind["inv"])
 
-    as_, _ = np.polyfit(YEARS_AXIS, scores, 1)
-    li = int(np.where(is_r)[0][-1])
+    scores = np.full(len(YEARS_AXIS), np.nan)
+    for i, y in enumerate(YEARS_AXIS):
+        str_y = str(y)
+        if str_y in frozen:
+            # Score définitivement figé
+            scores[i] = frozen[str_y]
+        elif is_r[i]:
+            # Année réelle non encore figée : calcul fenêtre glissante
+            score, _, _ = compute_score_for_year(ind, y)
+            scores[i] = score
+        else:
+            # Année projetée : on laisse NaN, sera interpolé pour le graphique
+
+            scores[i] = np.nan
+
+    # ── Régression sur les scores connus pour projeter 2025-2030 ─────────
+    known_y = [YEARS_AXIS[i] for i in range(len(YEARS_AXIS)) if not np.isnan(scores[i])]
+    known_s = [scores[i]     for i in range(len(YEARS_AXIS)) if not np.isnan(scores[i])]
+
+    proj_scores = scores.copy()
+    if len(known_y) >= 2:
+        as_, bs_ = np.polyfit(known_y, known_s, 1)
+        for i, y in enumerate(YEARS_AXIS):
+            if np.isnan(scores[i]):
+                proj_scores[i] = round(float(as_*y + bs_), 1)
+        slope = round(float(as_), 3)
+    else:
+        slope = 0.0
+
+    # ── Indices utiles ────────────────────────────────────────────────────
+    real_idx  = [i for i in range(len(YEARS_AXIS)) if is_r[i]]
+    li        = real_idx[-1] if real_idx else 0
+
+    real_scores_arr = np.where(is_r, proj_scores, np.nan)
+    # Pour les années réelles, on veut le vrai score (pas la projection)
+    for i in range(len(YEARS_AXIS)):
+        if is_r[i]:
+            real_scores_arr[i] = scores[i] if not np.isnan(scores[i]) else proj_scores[i]
+
     return {
-        "scores":      scores,
-        "real_scores": np.where(is_r, scores, np.nan),
+        "scores":      proj_scores,          # toute la plage 2015-2030 (proj incluses)
+        "real_scores": real_scores_arr,      # NaN sur années non réelles
         "real_raw":    np.where(is_r, all_v, np.nan),
         "proj_raw":    np.array([a*y+b for y in YEARS_AXIS]),
-        "slope":       round(float(as_), 3),
-        "last_score":  float(scores[li]),
-        "prev_score":  float(scores[li-1]) if li > 0 else None,
-        "proj_2030":   float(scores[-1]),
-        "mu":          round(float(mu), 4),
-        "sigma":       round(float(sigma), 4),
+        "slope":       slope,
+        "last_score":  float(proj_scores[li]),
+        "prev_score":  float(proj_scores[li-1]) if li > 0 else None,
+        "proj_2030":   float(proj_scores[-1]),
+        "last_real_year": int(YEARS_AXIS[li]),
     }
 
 def compute_global(data):
-    return np.round(np.nanmean(
-        np.vstack([build_series(ind)["scores"] for ind in data.values()]), axis=0), 2)
+    """Moyenne des scores par année sur tous les indicateurs."""
+    all_scores = []
+    for ind in data.values():
+        s = build_series(ind)
+        all_scores.append(s["scores"])
+    return np.round(np.nanmean(np.vstack(all_scores), axis=0), 2)
+
+def freeze_year(key, target_year):
+    """
+    Calcule et fige définitivement le score d'une année pour un indicateur.
+    Fenêtre glissante [target_year-9, target_year].
+    """
+    ind   = st.session_state.data[key]
+    score, mu, sigma = compute_score_for_year(ind, target_year)
+    if "frozen_scores" not in st.session_state.data[key]:
+        st.session_state.data[key]["frozen_scores"] = {}
+    st.session_state.data[key]["frozen_scores"][str(target_year)] = score
+    # Propage à saved_data et disque immédiatement
+    st.session_state.saved_data = copy.deepcopy(st.session_state.data)
+    write_save(st.session_state.saved_data)
+    return score, mu, sigma
+
+def freeze_year_all(target_year):
+    """Fige le score de target_year pour TOUS les indicateurs en une fois."""
+    results = {}
+    for key in list(st.session_state.data.keys()):
+        score, mu, sigma = freeze_year(key, target_year)
+        results[key] = score
+    return results
 
 # ════════════════════════════════════════════════════════════════════════════
 # GRAPHIQUES
@@ -451,14 +532,57 @@ with tabs[0]:
         gs     = compute_global(data)
         ag, bg = np.polyfit(YEARS_AXIS, gs, 1)
 
-        # Année max commune à tous les indicateurs (dernière année avec données réelles partout)
+        # Dernière année avec données réelles dans AU MOINS UN indicateur
         max_year = max(max(ind["years"]) for ind in data.values())
+        # ICF affiché = moyenne des scores à max_year (= ICF de l'année des dernières données)
+        icf_last = round(float(np.nanmean([
+            build_series(ind)["scores"][YEARS_AXIS.index(max_year)]
+            for ind in data.values()
+        ])), 1)
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric(f"Score {max_year}",      f"{gs[YEARS_AXIS.index(max_year)]:.1f} / 100")
+        c1.metric(f"ICF {max_year}",        f"{icf_last:.1f} / 100",
+                  help=f"ICF calculé sur la fenêtre {max_year-9}–{max_year}")
         c2.metric("Tendance",               f"{ag:+.2f} pts/an")
         c3.metric("Projection 2030",        f"{gs[-1]:.1f} / 100")
         c4.metric("Indicateurs actifs",     len(data))
+
+        # ── Panneau admin : geler les scores d'une année ────────────────────
+        if IS_ADMIN:
+            with st.expander("🔒 Geler les scores d'une année (admin)"):
+                st.markdown(
+                    "Figer un score le rend permanent — il ne sera plus jamais "
+                    "recalculé, même si les données brutes changent. "
+                    "Utilise la **fenêtre glissante [année−9, année]**."
+                )
+                col_yr, col_btn = st.columns([1, 2])
+                freeze_year_input = col_yr.number_input(
+                    "Année à geler", min_value=2015, max_value=2040,
+                    value=max_year, step=1, key="freeze_year_global"
+                )
+                if col_btn.button(f"🔒 Geler l'ICF {freeze_year_input} pour tous les indicateurs",
+                                  key="freeze_all", type="primary"):
+                    results = freeze_year_all(int(freeze_year_input))
+                    icf_frozen = round(float(np.mean(list(results.values()))), 2)
+                    st.success(
+                        f"✅ Scores {freeze_year_input} figés pour tous les indicateurs.\n"
+                        f"ICF {freeze_year_input} = **{icf_frozen}**"
+                    )
+                    st.rerun()
+
+                # Affiche les scores déjà figés
+                frozen_summary = {}
+                for k, ind2 in data.items():
+                    fs = ind2.get("frozen_scores", {})
+                    if fs:
+                        for yr, sc in fs.items():
+                            frozen_summary.setdefault(yr, {})[ind2["label"]] = sc
+                if frozen_summary:
+                    st.markdown("**Scores déjà figés :**")
+                    for yr in sorted(frozen_summary):
+                        avg = round(float(np.mean(list(frozen_summary[yr].values()))), 1)
+                        st.caption(f"• {yr} → ICF moyen figé : **{avg}** "
+                                   f"({len(frozen_summary[yr])} indicateurs)")
 
         fig_g = go.Figure()
         fig_g.add_trace(go.Scatter(
@@ -519,8 +643,10 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
     with tabs[tab_idx]:
         s = build_series(ind)
 
+        last_yr = s["last_real_year"]
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Dernier score réel", f"{s['last_score']:.1f} / 100")
+        c1.metric(f"Score {last_yr}", f"{s['last_score']:.1f} / 100",
+                  help=f"Fenêtre de référence : {last_yr-9}–{last_yr}")
         c2.metric("Tendance",           f"{s['slope']:+.2f} pts/an")
         c3.metric("Projection 2030",    f"{s['proj_2030']:.1f} / 100")
         if s["prev_score"] is not None:
@@ -574,6 +700,46 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
                              use_container_width=True,
                              help="Revient à la dernière sauvegarde permanente"):
                     do_reset(key); st.rerun()
+
+            # ── Geler le score d'une année spécifique ────────────────────
+            st.markdown("")
+            with st.expander(f"🔒 Geler / recalculer le score d'une année"):
+                st.markdown(
+                    "Geler = score permanent calculé sur la fenêtre **[année−9, année]**. "
+                    "Recalculer = force un nouveau calcul (écrase le score figé existant)."
+                )
+                frozen = ind.get("frozen_scores", {})
+
+                col_fy, col_fbtn = st.columns([1,2])
+                fy = col_fy.number_input("Année", min_value=2015, max_value=2040,
+                                         value=last_yr, step=1, key=f"fy_{key}")
+                if col_fbtn.button(f"🔒 Geler / recalculer {fy}",
+                                   key=f"freeze_{key}", type="primary"):
+                    score, mu, sigma = freeze_year(key, int(fy))
+                    st.success(
+                        f"✅ Score {fy} figé : **{score}** "
+                        f"(fenêtre {fy-9}–{fy}, μ={mu:.2f}, σ={sigma:.2f})"
+                    )
+                    st.rerun()
+
+                if frozen:
+                    st.markdown("**Scores figés pour cet indicateur :**")
+                    for yr in sorted(frozen):
+                        win_start = int(yr) - 9
+                        st.caption(f"• {yr} = **{frozen[yr]}** "
+                                   f"(fenêtre {win_start}–{yr})")
+                    # Option dégel
+                    unfreeze_yr = st.selectbox(
+                        "Dégeler une année (supprime le score figé)",
+                        options=["—"] + sorted(frozen.keys()),
+                        key=f"unfreeze_{key}"
+                    )
+                    if unfreeze_yr != "—":
+                        if st.button(f"🔓 Dégeler {unfreeze_yr}", key=f"uf_{key}_{unfreeze_yr}"):
+                            del st.session_state.data[key]["frozen_scores"][unfreeze_yr]
+                            st.session_state.saved_data = copy.deepcopy(st.session_state.data)
+                            write_save(st.session_state.saved_data)
+                            st.rerun()
 
             st.markdown("")
             with st.expander("⚠️ Supprimer cet indicateur"):
