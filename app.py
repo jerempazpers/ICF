@@ -159,22 +159,46 @@ def z_apply_fixed(arr, mu, sigma, inv):
     zn = np.clip(((arr - mu) / sigma + 3) / 6, 0, 1) * 100
     return np.round(100 - zn if inv else zn, 1)
 
+BASE_YEAR_0 = 2015   # première année de base de la méthode
+
+def get_reference_period(icf_year):
+    """
+    Retourne (ref_start, ref_end) : période de référence (μ, σ) pour
+    l'indice / ICF de l'année icf_year.
+
+    MÉTHODE (cumulative avec rebasage décennal, inspirée de l'INSEE) :
+      - ICF ≤ 2025       : référence FIXE 2015–2024
+        (les ICF 2015–2024 affichés à titre indicatif utilisent cette même référence)
+      - ICF 2026 → 2035  : référence CUMULATIVE 2015 → (ICF−1)
+      - ICF 2036 → 2045  : REBASAGE → référence 2025 → (ICF−1)
+      - puis rebasage tous les 10 ans (base 2035 pour ICF 2046-2055, etc.)
+    """
+    if icf_year <= BASE_YEAR_0 + 10:                 # ICF ≤ 2025
+        return BASE_YEAR_0, BASE_YEAR_0 + 9          # (2015, 2024) fixe
+    n_rebase = max(0, (icf_year - (BASE_YEAR_0 + 11)) // 10)  # 2026-35→0, 2036-45→1…
+    base = BASE_YEAR_0 + 10 * n_rebase
+    return base, icf_year - 1
+
 def compute_score_for_year(ind, target_year):
     """
-    Calcule le score d'un indicateur pour une année cible donnée.
-    Fenêtre glissante : [target_year-9, target_year] (10 ans).
-    Si les données ne couvrent pas encore target_year, extrapole par régression.
+    Calcule l'indice d'un indicateur pour l'année de données target_year.
+    L'indice/ICF correspondant est celui de l'année (target_year + 1).
+
+    La référence (μ, σ) suit get_reference_period(target_year+1).
+    Les années manquantes de la référence sont extrapolées par régression
+    linéaire — cohérent avec la méthode MATLAB d'origine.
     """
     years = np.array(ind["years"]); vals = np.array(ind["vals"], float)
     a, b  = np.polyfit(years, vals, 1)
     rby   = dict(zip(ind["years"], ind["vals"]))
 
-    win_start = target_year - 9
-    win_years = list(range(win_start, target_year + 1))   # 10 ans glissants
-    win_vals  = np.array([rby.get(y, a*y+b) for y in win_years])
+    icf_year = target_year + 1
+    ref_start, ref_end = get_reference_period(icf_year)
+    ref_years = list(range(ref_start, ref_end + 1))
+    ref_vals  = np.array([rby.get(y, a*y+b) for y in ref_years])
 
-    mu    = win_vals.mean()
-    sigma = win_vals.std(ddof=1)
+    mu    = ref_vals.mean()
+    sigma = ref_vals.std(ddof=1)
     if sigma == 0:
         return 50.0, mu, sigma
 
@@ -203,8 +227,8 @@ def build_series(ind):
     first_data = int(years.min())
     last_data  = int(years.max())
 
-    # Axe des années d'INDICE : de first_data+1 à 2030
-    indice_years = list(range(first_data + 1, 2031))
+    # Axe des années d'INDICE : depuis 2015 (affichage indicatif inclus)
+    indice_years = list(range(BASE_YEAR_0, 2031))
 
     scores      = np.full(len(indice_years), np.nan)  # indice réel (année données réelle)
     proj_scores = np.full(len(indice_years), np.nan)  # tous (réels + extrapolés)
@@ -260,20 +284,20 @@ def build_series(ind):
         "stale_frozen":     stale_frozen,   # [(annee, valeur_figée, valeur_recalculée)]
     }
 
-def compute_global(data):
+def compute_global(data, start_year=None):
     """
-    ICF par année d'indice, calculé avec la formule unifiée.
-    ICF N = moyenne de compute_score_for_year(ind, N-1) sur tous les indicateurs.
-    Retourne (indice_years, icf_values) alignés.
+    ICF par année, formule unifiée : ICF N = moyenne des indices N de tous
+    les indicateurs, où indice N = compute_score_for_year(ind, N-1).
+    La période de référence de chaque année suit get_reference_period(N).
+    Retourne (icf_years, icf_values) alignés, depuis 2015 par défaut.
     """
-    # Plage d'années d'indice possible
-    first_data = min(min(ind["years"]) for ind in data.values())
-    indice_years = list(range(first_data + 1, 2031))
+    axis_start = start_year if start_year is not None else BASE_YEAR_0
+    icf_years = list(range(axis_start, 2031))
     icf_vals = []
-    for iy in indice_years:
+    for iy in icf_years:
         scores = [compute_score_for_year(ind, iy - 1)[0] for ind in data.values()]
         icf_vals.append(round(float(np.mean(scores)), 2))
-    return indice_years, np.array(icf_vals)
+    return icf_years, np.array(icf_vals)
 
 def get_frozen_icf_series(data):
     """
@@ -621,6 +645,7 @@ with tabs[0]:
     if not data:
         st.warning("Aucun indicateur disponible.")
     else:
+        # Série ICF unique (référence cumulative) — démarre à 2015
         icf_years_axis, gs = compute_global(data)
         ag, bg = np.polyfit(icf_years_axis, gs, 1)
 
@@ -669,17 +694,17 @@ with tabs[0]:
                 )
                 st.session_state.selected_icf_year = int(chosen)
             with sel_col2:
+                _rs, _re = get_reference_period(int(chosen))
                 st.caption(
-                    f"ICF {chosen} = scores calculés sur les données "
-                    f"**{int(chosen)-10}–{int(chosen)-1}** (fenêtre 10 ans)"
+                    f"ICF {chosen} = indices calculés avec la référence "
+                    f"**{_rs}–{_re}** (méthode cumulative, rebasage décennal)"
                 )
         else:
             chosen = min(icf_max_calculable, CURRENT_YEAR + 1)
 
         icf_year       = int(chosen)
         target_data_yr = icf_year - 1        # dernière année de données utilisée
-        win_start      = target_data_yr - 9  # 2025-1-9=2015
-        win_end        = target_data_yr      # 2024
+        win_start, win_end = get_reference_period(icf_year)   # période de référence
 
         # Indicateurs sans données réelles pour target_data_yr
         late_inds  = {key: data[key]["label"]
@@ -775,7 +800,8 @@ with tabs[0]:
             icf_last = round(float(np.mean(list(icf_scores_direct.values()))), 1)
 
             c1.metric(f"ICF {icf_year}", f"{icf_last:.1f} / 100",
-                      help=f"Données : {win_start}–{win_end} (fenêtre 10 ans)")
+                      help=f"Référence : {win_start}–{win_end} "
+                           f"({win_end - win_start + 1} ans, méthode cumulative)")
             c2.metric("Tendance",           f"{ag:+.2f} pts/an")
             c3.metric("Projection 2030",    f"{gs[-1]:.1f} / 100")
             c4.metric("Indicateurs actifs", len(data))
@@ -822,8 +848,8 @@ with tabs[0]:
                         value=min(int(icf_year), freeze_max),
                         step=1, key="freeze_year_global"
                     ))
-                    fy_win = f"{freeze_year_input - 10}–{freeze_year_input - 1}"
-                    col_yr.caption(f"Fenêtre : {fy_win}")
+                    _frs, _fre = get_reference_period(freeze_year_input)
+                    col_yr.caption(f"Référence : {_frs}–{_fre}")
 
                     if col_btn.button(
                         f"🔒 Geler ICF {freeze_year_input} pour tous les indicateurs",
@@ -889,21 +915,16 @@ with tabs[0]:
         frozen_icf      = get_frozen_icf_series(data)
         current_icf_val = compute_icf_for_year(data, icf_year)
 
-        # Série ICF unifiée : ICF N = moyenne compute_score_for_year(ind, N-1)
-        # Identique au tableau et aux onglets. Calculée par compute_global.
-        # icf_years_axis et gs sont déjà calculés en haut de l'onglet.
-        # On sépare : indices dont l'année de données (N-1) est réelle vs extrapolée.
+        # Série d'AFFICHAGE (démarre à 2015, fenêtres incomplètes incluses).
+        # N'affecte AUCUN calcul officiel — uniquement le tracé de la courbe.
         last_data_global = max(max(ind["years"]) for ind in data.values())
 
         real_icf_years, real_icf_vals = [], []
         proj_icf_years, proj_icf_vals = [], []
         for iy, val in zip(icf_years_axis, gs):
-            data_yr = iy - 1
-            # "réel" si au moins un indicateur a une donnée pour data_yr
-            has_real = any(data_yr in ind["years"] for ind in data.values())
-            if has_real and iy <= icf_year:
+            if iy <= icf_year:
                 real_icf_years.append(iy); real_icf_vals.append(round(float(val),1))
-            elif iy > icf_year:
+            else:
                 proj_icf_years.append(iy); proj_icf_vals.append(round(float(val),1))
 
         # Régression sur ICF figés (sinon sur ICF réels) pour la tendance
@@ -964,12 +985,9 @@ with tabs[0]:
         )
         st.plotly_chart(fig_g, use_container_width=True)
 
-        # ── Tableau récap indices par indicateur avec code couleur ───────────
-        all_real_years = sorted(set(
-            y for ind in data.values() for y in ind["years"]
-            if y <= CURRENT_YEAR
-        ))
-        st.subheader(f"Scores par indicateur (fenêtre {win_start}–{win_end} → ICF {icf_year})")
+        # ── Tableau des indices par indicateur + ligne ICF ───────────────────
+        # Terminologie : "indice" = score d'un indicateur ; "ICF" = moyenne globale
+        st.subheader(f"Indices par indicateur — référence {win_start}–{win_end}")
 
         # Légende
         st.markdown(
@@ -987,34 +1005,22 @@ with tabs[0]:
             unsafe_allow_html=True
         )
 
-        # Colonnes = années ICF (y+1)
-        # Règle : n'afficher ICF X que si AU MOINS UN indicateur a une donnée
-        # réelle pour l'année X-1 (sinon toute la colonne serait extrapolée)
-        icf_cols = []
-        for y in all_real_years:
-            icf_col = y + 1
-            if icf_col > icf_year:
-                continue
-            data_yr = icf_col - 1  # = y
-            # Au moins un indicateur a-t-il une vraie donnée pour data_yr ?
-            has_real = any(data_yr in ind["years"] for ind in data.values())
-            if has_real:
-                icf_cols.append(icf_col)
+        # Colonnes = années d'indice, de 2015 à icf_year
+        # (2015–2024 affichés à titre indicatif : même référence 2015-2024)
+        icf_cols = list(range(BASE_YEAR_0, icf_year + 1))
 
-        ind_labels = [ind["label"] for ind in data.values()]
+        ind_labels = [ind["label"] for ind in data.values()] + ["🏆 ICF"]
 
-        # Construit les valeurs et les couleurs cellule par cellule
-        cell_vals   = []  # une liste par colonne ICF
+        cell_vals   = []  # une liste par colonne
         cell_colors = []  # couleur par cellule
 
         for icf_col_yr in icf_cols:
-            data_yr = icf_col_yr - 1  # année de données correspondante
-            col_vals   = []
-            col_colors = []
+            data_yr = icf_col_yr - 1
+            col_vals, col_colors = [], []
+            col_scores = []   # pour la ligne ICF
             for key, ind in data.items():
                 frozen = ind.get("frozen_scores", {})
                 if str(icf_col_yr) in frozen:
-                    # Score figé : on l'affiche tel quel (cohérence avec le graphe)
                     sc = frozen[str(icf_col_yr)]
                     col_vals.append(f"{sc:.1f}")
                     col_colors.append("#2E7D32")  # vert = figé
@@ -1023,12 +1029,17 @@ with tabs[0]:
                     is_real  = data_yr in ind["years"]
                     col_vals.append(f"{sc:.1f}")
                     col_colors.append("#1E4A8C" if is_real else "#5A3E7A")
+                col_scores.append(float(sc))
+            # Ligne ICF = moyenne des indices de la colonne
+            icf_cell = round(float(np.mean(col_scores)), 1)
+            col_vals.append(f"<b>{icf_cell:.1f}</b>")
+            col_colors.append("#B8860B")   # doré = ligne ICF
             cell_vals.append(col_vals)
             cell_colors.append(col_colors)
 
         fig_table = go.Figure(data=[go.Table(
             header=dict(
-                values=["<b>Indicateur</b>"] + [f"<b>ICF {y}</b>" for y in icf_cols],
+                values=["<b>Indicateur</b>"] + [f"<b>{y}</b>" for y in icf_cols],
                 fill_color="#0D1B2A",
                 font=dict(color="white", size=12),
                 align="center",
@@ -1037,7 +1048,7 @@ with tabs[0]:
             cells=dict(
                 values=[ind_labels] + cell_vals,
                 fill_color=[
-                    ["#0D1B2A"] * len(ind_labels)   # colonne indicateurs
+                    ["#0D1B2A"] * len(ind_labels)
                 ] + cell_colors,
                 font=dict(color="white", size=12),
                 align="center",
@@ -1067,9 +1078,10 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
             prev_score_val = prev_sc
 
         c1, c2, c3, c4 = st.columns(4)
+        _irs, _ire = get_reference_period(indice_yr)
         c1.metric(f"Indice {indice_yr}",
                   f"{indice_score:.1f} / 100",
-                  help=f"Calculé sur les données {last_yr-9}–{last_yr}")
+                  help=f"Valeur {last_yr} normalisée sur la référence {_irs}–{_ire}")
         c2.metric("Tendance",        f"{s['slope']:+.2f} pts/an")
         c3.metric("Projection 2030", f"{s['proj_2030']:.1f} / 100")
         if prev_score_val is not None:
@@ -1168,17 +1180,16 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
                     score, mu, sigma = freeze_year(key, int(fy))
                     st.success(
                         f"✅ ICF {fy} figé : **{score}** "
-                        f"(fenêtre {fy-10}–{fy-1}, μ={mu:.2f}, σ={sigma:.2f})"
+                        f"(référence {get_reference_period(int(fy))[0]}–{get_reference_period(int(fy))[1]}, μ={mu:.2f}, σ={sigma:.2f})"
                     )
                     st.rerun()
 
                 if frozen:
                     st.markdown("**ICF figés pour cet indicateur :**")
                     for yr in sorted(frozen):
-                        win_s = int(yr) - 10
-                        win_e = int(yr) - 1
-                        st.caption(f"• ICF {yr} = **{frozen[yr]}** "
-                                   f"(fenêtre {win_s}–{win_e})")
+                        win_s, win_e = get_reference_period(int(yr))
+                        st.caption(f"• Indice {yr} = **{frozen[yr]}** "
+                                   f"(référence {win_s}–{win_e})")
                     # Option dégel
                     unfreeze_yr = st.selectbox(
                         "Dégeler une année (supprime le score figé)",
