@@ -771,8 +771,8 @@ with tabs[0]:
                     df_frozen = pd.DataFrame(frozen_rows).T
                     st.dataframe(df_frozen, use_container_width=True)
 
-                    st.markdown("**Supprimer une année gelée :**")
-                    cols_del = st.columns(min(len(frozen_summary), 6))
+                    st.markdown("**Supprimer / recalculer une année gelée :**")
+                    cols_del = st.columns(min(len(frozen_summary), 4))
                     for i, yr in enumerate(sorted(frozen_summary)):
                         with cols_del[i % len(cols_del)]:
                             if st.button(f"🗑 ICF {yr}", key=f"del_frozen_global_{yr}"):
@@ -783,6 +783,19 @@ with tabs[0]:
                                 st.session_state.saved_data = copy.deepcopy(st.session_state.data)
                                 write_save(st.session_state.saved_data)
                                 st.rerun()
+                            if st.button(f"♻ Recalc {yr}", key=f"recalc_frozen_{yr}",
+                                         help=f"Recalcule ICF {yr} avec la formule actuelle"):
+                                freeze_year_all(int(yr))
+                                st.rerun()
+
+                    st.markdown("---")
+                    if st.button("🧹 Supprimer TOUS les gels (repartir de zéro)",
+                                 key="clear_all_frozen"):
+                        for k2 in list(data.keys()):
+                            st.session_state.data[k2]["frozen_scores"] = {}
+                        st.session_state.saved_data = copy.deepcopy(st.session_state.data)
+                        write_save(st.session_state.saved_data)
+                        st.rerun()
 
         # ── Graphique ICF ─────────────────────────────────────────────────────
         frozen_icf      = get_frozen_icf_series(data)
@@ -879,6 +892,9 @@ with tabs[0]:
             "<span><span style='display:inline-block;width:14px;height:14px;"
             "background:#5A3E7A;border-radius:3px;vertical-align:middle;margin-right:5px;'>"
             "</span>Extrapolé (régression)</span>"
+            "<span><span style='display:inline-block;width:14px;height:14px;"
+            "background:#2E7D32;border-radius:3px;vertical-align:middle;margin-right:5px;'>"
+            "</span>Figé (définitif)</span>"
             "</div>",
             unsafe_allow_html=True
         )
@@ -908,10 +924,17 @@ with tabs[0]:
             col_vals   = []
             col_colors = []
             for key, ind in data.items():
-                sc, _, _ = compute_score_for_year(ind, data_yr)
-                is_real  = data_yr in ind["years"]
-                col_vals.append(f"{sc:.1f}")
-                col_colors.append("#1E4A8C" if is_real else "#5A3E7A")
+                frozen = ind.get("frozen_scores", {})
+                if str(icf_col_yr) in frozen:
+                    # Score figé : on l'affiche tel quel (cohérence avec le graphe)
+                    sc = frozen[str(icf_col_yr)]
+                    col_vals.append(f"{sc:.1f}")
+                    col_colors.append("#2E7D32")  # vert = figé
+                else:
+                    sc, _, _ = compute_score_for_year(ind, data_yr)
+                    is_real  = data_yr in ind["years"]
+                    col_vals.append(f"{sc:.1f}")
+                    col_colors.append("#1E4A8C" if is_real else "#5A3E7A")
             cell_vals.append(col_vals)
             cell_colors.append(col_colors)
 
