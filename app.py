@@ -582,9 +582,20 @@ with tabs[0]:
 
         # Sélecteur d'année ICF pour l'admin (stocké en session)
         if "selected_icf_year" not in st.session_state:
-            # Par défaut : ICF de l'année la plus récente calculable
             st.session_state.selected_icf_year = min(icf_max_calculable,
                                                       CURRENT_YEAR + 1)
+
+        # Re-clamp : si les données ont changé (ajout/suppression), l'année
+        # sélectionnée peut être hors des bornes calculables → on la corrige
+        st.session_state.selected_icf_year = max(
+            icf_min_calculable,
+            min(int(st.session_state.selected_icf_year), icf_max_calculable)
+        )
+        # Si le widget garde une valeur hors bornes, on le réinitialise
+        if "icf_year_selector" in st.session_state:
+            if (st.session_state.icf_year_selector > icf_max_calculable or
+                st.session_state.icf_year_selector < icf_min_calculable):
+                del st.session_state["icf_year_selector"]
 
         if IS_ADMIN:
             sel_col1, sel_col2 = st.columns([2, 6])
