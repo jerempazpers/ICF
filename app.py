@@ -208,18 +208,23 @@ def build_series(ind):
 
     scores      = np.full(len(indice_years), np.nan)  # indice réel (année données réelle)
     proj_scores = np.full(len(indice_years), np.nan)  # tous (réels + extrapolés)
+    stale_frozen = []   # indices figés qui divergent du recalcul (données changées depuis)
 
     for i, iy in enumerate(indice_years):
         data_yr = iy - 1  # année de données correspondante
         str_iy  = str(iy)
+        # Calcul "live" (données actuelles)
+        sc_live, _, _ = compute_score_for_year(ind, data_yr)
         if str_iy in frozen:
             scores[i]      = frozen[str_iy]
             proj_scores[i] = frozen[str_iy]
+            # Le figé diverge-t-il du recalcul actuel ? (données modifiées depuis le gel)
+            if abs(frozen[str_iy] - sc_live) > 0.05:
+                stale_frozen.append((iy, frozen[str_iy], sc_live))
         else:
-            sc, _, _ = compute_score_for_year(ind, data_yr)
-            proj_scores[i] = sc
+            proj_scores[i] = sc_live
             if data_yr in rby:          # donnée réelle → indice "réel"
-                scores[i] = sc
+                scores[i] = sc_live
 
     # Régression sur les indices réels pour la tendance
     known_i = [indice_years[j] for j in range(len(indice_years)) if not np.isnan(scores[j])]
@@ -252,6 +257,7 @@ def build_series(ind):
         "proj_2030":    float(proj_scores[-1]),
         "last_indice_year": int(indice_years[li]) if real_idx else indice_years[0],
         "last_data_year":   last_data,
+        "stale_frozen":     stale_frozen,   # [(annee, valeur_figée, valeur_recalculée)]
     }
 
 def compute_global(data):
@@ -399,6 +405,31 @@ def do_reset(key):
     ref = st.session_state.saved_data
     st.session_state.data[key] = copy.deepcopy(
         ref[key] if key in ref else ORIGINAL_DATA[key])
+
+def add_next_year_data(year, values_by_key):
+    """
+    Ajoute les données de l'année `year` pour chaque indicateur.
+    values_by_key : {key: valeur ou None}. Si None/vide → l'indicateur
+    n'est pas mis à jour (pas de donnée pour cette année-là).
+    Sauvegarde permanente immédiate.
+    """
+    for key, val in values_by_key.items():
+        if val is None:
+            continue
+        ind = st.session_state.data[key]
+        if year in ind["years"]:
+            # Écrase la valeur existante pour cette année
+            idx = ind["years"].index(year)
+            ind["vals"][idx] = float(val)
+        else:
+            ind["years"].append(int(year))
+            ind["vals"].append(float(val))
+            # Garde les listes triées par année
+            pairs = sorted(zip(ind["years"], ind["vals"]))
+            ind["years"] = [p[0] for p in pairs]
+            ind["vals"]  = [p[1] for p in pairs]
+    st.session_state.saved_data = copy.deepcopy(st.session_state.data)
+    write_save(st.session_state.saved_data)
 
 def do_delete(key):
     del st.session_state.data[key]
@@ -655,6 +686,63 @@ with tabs[0]:
                       for key, yr in last_years.items() if yr < target_data_yr}
         ahead_inds = {key: data[key]["label"]
                       for key, yr in last_years.items() if yr > target_data_yr}
+
+        # ── Bouton : ajouter les données de l'année suivante (admin) ──────────
+        if IS_ADMIN:
+            next_year = max_last + 1  # année à ajouter = juste après le max actuel
+            if "show_add_year_form" not in st.session_state:
+                st.session_state.show_add_year_form = False
+
+            if not st.session_state.show_add_year_form:
+                if st.button(f"➕ Ajouter les données de l'année {next_year}",
+                             type="primary", use_container_width=True):
+                    st.session_state.show_add_year_form = True
+                    st.rerun()
+            else:
+                with st.container(border=True):
+                    st.markdown(f"### ➕ Saisie des données {next_year}")
+                    st.caption("Renseignez la valeur brute de chaque indicateur pour "
+                               f"{next_year}. Laissez vide si la donnée n'est pas "
+                               "disponible — l'indicateur sera alors extrapolé.")
+
+                    entered = {}
+                    for key, ind in data.items():
+                        last_val = ind["vals"][-1] if ind["vals"] else 0
+                        col_lbl, col_inp = st.columns([3, 2])
+                        col_lbl.markdown(
+                            f"**{ind['label']}**  \n"
+                            f"<span style='color:#888;font-size:12px;'>"
+                            f"{ind['unit']} · dernière valeur ({max(ind['years'])}) : "
+                            f"{last_val:g}</span>",
+                            unsafe_allow_html=True
+                        )
+                        val = col_inp.number_input(
+                            f"Valeur {next_year}",
+                            value=None, format="%.10g",
+                            key=f"addyear_{key}",
+                            label_visibility="collapsed",
+                            placeholder="(vide = pas de donnée)"
+                        )
+                        entered[key] = val
+
+                    st.markdown("")
+                    col_ok, col_cancel = st.columns(2)
+                    with col_ok:
+                        if st.button("✓ Valider et calculer", type="primary",
+                                     use_container_width=True):
+                            add_next_year_data(next_year, entered)
+                            st.session_state.show_add_year_form = False
+                            # Nettoie les inputs
+                            for key in data:
+                                st.session_state.pop(f"addyear_{key}", None)
+                            st.success(f"✅ Données {next_year} ajoutées !")
+                            st.rerun()
+                    with col_cancel:
+                        if st.button("✕ Annuler", use_container_width=True):
+                            st.session_state.show_add_year_form = False
+                            for key in data:
+                                st.session_state.pop(f"addyear_{key}", None)
+                            st.rerun()
 
         c1, c2, c3, c4 = st.columns(4)
 
@@ -989,6 +1077,24 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
                       f"{indice_score - prev_score_val:+.1f} pts",
                       help=f"vs Indice {last_yr}")
 
+        # ── Avertissement : scores figés périmés (données changées depuis le gel) ──
+        if s.get("stale_frozen") and IS_ADMIN:
+            stale_list = ", ".join(
+                f"Indice {yr} (figé {fv:.1f} → recalculé {lv:.1f})"
+                for yr, fv, lv in s["stale_frozen"]
+            )
+            st.warning(
+                f"⚠️ Des scores figés ne correspondent plus aux données actuelles : "
+                f"{stale_list}. Le graphique affiche les valeurs **figées**, pas le recalcul."
+            )
+            if st.button("♻ Recalculer ces scores figés", key=f"recalc_stale_{key}"):
+                for yr, _, _ in s["stale_frozen"]:
+                    new_sc, _, _ = compute_score_for_year(ind, yr - 1)
+                    st.session_state.data[key]["frozen_scores"][str(yr)] = new_sc
+                st.session_state.saved_data = copy.deepcopy(st.session_state.data)
+                write_save(st.session_state.saved_data)
+                st.rerun()
+
         col_l, col_r = st.columns(2)
         with col_l:
             st.plotly_chart(score_fig(s, ind["label"]), use_container_width=True)
@@ -1006,16 +1112,23 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
             if has_unsaved:
                 st.warning("⚠️ Modifications en cours — pas encore sauvegardées définitivement.")
 
+            st.caption("Vous pouvez modifier les valeurs existantes. Pour ajouter "
+                       "une nouvelle année, utilisez le bouton dédié dans l'onglet "
+                       "**ICF Global**.")
+
+            # La clé inclut le nombre d'années : si une année est ajoutée via
+            # le formulaire global, la clé change et le tableau se rafraîchit
+            editor_key = f"editor_{key}_{len(ind['years'])}_{max(ind['years'])}"
             edited = st.data_editor(
                 pd.DataFrame({"Année": ind["years"], ind["unit"]: ind["vals"]}),
-                num_rows="dynamic",
+                num_rows="fixed",
+                disabled=["Année"],
                 column_config={
                     "Année":     st.column_config.NumberColumn(
-                                     "Année", min_value=2000, max_value=2040,
-                                     step=1, format="%d"),
+                                     "Année", format="%d"),
                     ind["unit"]: st.column_config.NumberColumn(ind["unit"], format="%.10g"),
                 },
-                key=f"editor_{key}",
+                key=editor_key,
                 use_container_width=True,
             )
 
