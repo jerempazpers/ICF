@@ -868,8 +868,20 @@ with tabs[0]:
             unsafe_allow_html=True
         )
 
-        # Colonnes = années ICF (y+1), filtrées jusqu'à icf_year
-        icf_cols = [y+1 for y in all_real_years if y+1 <= icf_year]
+        # Colonnes = années ICF (y+1)
+        # Règle : n'afficher ICF X que si AU MOINS UN indicateur a une donnée
+        # réelle pour l'année X-1 (sinon toute la colonne serait extrapolée)
+        icf_cols = []
+        for y in all_real_years:
+            icf_col = y + 1
+            if icf_col > icf_year:
+                continue
+            data_yr = icf_col - 1  # = y
+            # Au moins un indicateur a-t-il une vraie donnée pour data_yr ?
+            has_real = any(data_yr in ind["years"] for ind in data.values())
+            if has_real:
+                icf_cols.append(icf_col)
+
         ind_labels = [ind["label"] for ind in data.values()]
 
         # Construit les valeurs et les couleurs cellule par cellule
