@@ -664,47 +664,17 @@ with tabs[0]:
         icf_min_calculable = first_data_yr + 10   # ex: 2015+10=2025
         icf_max_calculable = max_last + 1          # ex: 2025+1=2026
 
-        # Sélecteur d'année ICF pour l'admin (stocké en session)
-        if "selected_icf_year" not in st.session_state:
-            st.session_state.selected_icf_year = min(icf_max_calculable,
-                                                      CURRENT_YEAR + 1)
-
-        # Re-clamp : si les données ont changé (ajout/suppression), l'année
-        # sélectionnée peut être hors des bornes calculables → on la corrige
-        st.session_state.selected_icf_year = max(
-            icf_min_calculable,
-            min(int(st.session_state.selected_icf_year), icf_max_calculable)
-        )
-        # Si le widget garde une valeur hors bornes, on le réinitialise
-        if "icf_year_selector" in st.session_state:
-            if (st.session_state.icf_year_selector > icf_max_calculable or
-                st.session_state.icf_year_selector < icf_min_calculable):
-                del st.session_state["icf_year_selector"]
-
-        if IS_ADMIN:
-            sel_col1, sel_col2 = st.columns([2, 6])
-            with sel_col1:
-                chosen = st.number_input(
-                    "📅 Afficher l'ICF de l'année",
-                    min_value=icf_min_calculable,
-                    max_value=icf_max_calculable,
-                    value=int(st.session_state.selected_icf_year),
-                    step=1, key="icf_year_selector",
-                    help=f"Années disponibles : {icf_min_calculable}–{icf_max_calculable}"
-                )
-                st.session_state.selected_icf_year = int(chosen)
-            with sel_col2:
-                _rs, _re = get_reference_period(int(chosen))
-                st.caption(
-                    f"ICF {chosen} = indices calculés avec la référence "
-                    f"**{_rs}–{_re}** (méthode cumulative, rebasage décennal)"
-                )
-        else:
-            chosen = min(icf_max_calculable, CURRENT_YEAR + 1)
-
-        icf_year       = int(chosen)
+        # ── ICF affiché : automatique = le plus récent calculable ────────────
+        # (dès qu'au moins un indicateur a une donnée pour l'année N-1,
+        #  l'ICF N devient l'ICF courant)
+        icf_year       = int(min(icf_max_calculable, CURRENT_YEAR + 1))
         target_data_yr = icf_year - 1        # dernière année de données utilisée
         win_start, win_end = get_reference_period(icf_year)   # période de référence
+
+        st.caption(
+            f"**ICF {icf_year}** — indices calculés sur les valeurs {target_data_yr}, "
+            f"référence **{win_start}–{win_end}** (méthode cumulative, rebasage décennal)"
+        )
 
         # Indicateurs sans données réelles pour target_data_yr
         late_inds  = {key: data[key]["label"]
