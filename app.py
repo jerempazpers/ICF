@@ -107,9 +107,22 @@ def check_login(username, password):
         return user["role"]
     return None
 
-# ── Session state : par défaut visiteur anonyme, pas de connexion requise ──
+# ── Session state : par défaut visiteur, auth admin persistée via URL ──────
+# Streamlit réinitialise session_state à chaque rechargement complet (F5).
+# On persiste donc l'état admin dans les query params de l'URL avec un token.
+
+def _admin_token():
+    """Token de session admin (hash d'un secret + marqueur)."""
+    try:
+        secret = st.secrets.get("admin_session_secret", "ledlr-icf-default-secret")
+    except Exception:
+        secret = "ledlr-icf-default-secret"
+    return hashlib.sha256(f"admin::{secret}".encode()).hexdigest()[:24]
+
 if "is_admin" not in st.session_state:
-    st.session_state.is_admin       = False
+    # Restaure l'état admin depuis l'URL si le token est présent et valide
+    qp = st.query_params
+    st.session_state.is_admin = (qp.get("s") == _admin_token())
 if "show_login_form" not in st.session_state:
     st.session_state.show_login_form = False
 
@@ -172,78 +185,89 @@ def compute_score_for_year(ind, target_year):
 
 def build_series(ind):
     """
-    Construit la série complète 2015-2030 pour affichage.
-    - Années avec frozen_scores : utilise le score figé
-    - Autres années réelles     : calcule avec fenêtre glissante [Y-9, Y]
-    - Années projetées          : régression sur les scores figés
+    Construit la série des INDICES pour affichage.
+
+    CONVENTION UNIFIÉE (identique au tableau ICF global) :
+      Indice N = compute_score_for_year(ind, N-1)
+               = valeur de l'année (N-1) normalisée sur la fenêtre [N-10, N-1]
+
+    L'axe "année d'indice" va de (première_donnée+1) à 2030.
+    - Indices dont l'année de données (N-1) est réelle → point plein
+    - Indices dont l'année de données (N-1) est extrapolée → projection
+    - frozen_scores[str(N)] écrase le calcul si présent (score figé définitif)
     """
-    years = np.array(ind["years"]); vals = np.array(ind["vals"], float)
-    a, b  = np.polyfit(years, vals, 1)
-    rby   = dict(zip(ind["years"], ind["vals"]))
-    frozen = ind.get("frozen_scores", {})   # {"2024": 21.6, ...}
+    years  = np.array(ind["years"])
+    rby    = dict(zip(ind["years"], ind["vals"]))
+    frozen = ind.get("frozen_scores", {})   # {"2025": 21.6, ...}
 
-    # ── Calcul score pour chaque année réelle ─────────────────────────────
-    all_v  = np.array([rby.get(y, a*y+b) for y in YEARS_AXIS])
-    is_r   = np.array([y in rby for y in YEARS_AXIS])
+    first_data = int(years.min())
+    last_data  = int(years.max())
 
-    scores = np.full(len(YEARS_AXIS), np.nan)
-    for i, y in enumerate(YEARS_AXIS):
-        str_y = str(y)
-        if str_y in frozen:
-            # Score définitivement figé
-            scores[i] = frozen[str_y]
-        elif is_r[i]:
-            # Année réelle non encore figée : calcul fenêtre glissante
-            score, _, _ = compute_score_for_year(ind, y)
-            scores[i] = score
+    # Axe des années d'INDICE : de first_data+1 à 2030
+    indice_years = list(range(first_data + 1, 2031))
+
+    scores      = np.full(len(indice_years), np.nan)  # indice réel (année données réelle)
+    proj_scores = np.full(len(indice_years), np.nan)  # tous (réels + extrapolés)
+
+    for i, iy in enumerate(indice_years):
+        data_yr = iy - 1  # année de données correspondante
+        str_iy  = str(iy)
+        if str_iy in frozen:
+            scores[i]      = frozen[str_iy]
+            proj_scores[i] = frozen[str_iy]
         else:
-            # Année projetée : on laisse NaN, sera interpolé pour le graphique
+            sc, _, _ = compute_score_for_year(ind, data_yr)
+            proj_scores[i] = sc
+            if data_yr in rby:          # donnée réelle → indice "réel"
+                scores[i] = sc
 
-            scores[i] = np.nan
-
-    # ── Régression sur les scores connus pour projeter 2025-2030 ─────────
-    known_y = [YEARS_AXIS[i] for i in range(len(YEARS_AXIS)) if not np.isnan(scores[i])]
-    known_s = [scores[i]     for i in range(len(YEARS_AXIS)) if not np.isnan(scores[i])]
-
-    proj_scores = scores.copy()
-    if len(known_y) >= 2:
-        as_, bs_ = np.polyfit(known_y, known_s, 1)
-        for i, y in enumerate(YEARS_AXIS):
-            if np.isnan(scores[i]):
-                proj_scores[i] = round(float(as_*y + bs_), 1)
+    # Régression sur les indices réels pour la tendance
+    known_i = [indice_years[j] for j in range(len(indice_years)) if not np.isnan(scores[j])]
+    known_s = [scores[j]        for j in range(len(indice_years)) if not np.isnan(scores[j])]
+    if len(known_i) >= 2:
+        as_, bs_ = np.polyfit(known_i, known_s, 1)
         slope = round(float(as_), 3)
     else:
         slope = 0.0
 
-    # ── Indices utiles ────────────────────────────────────────────────────
-    real_idx  = [i for i in range(len(YEARS_AXIS)) if is_r[i]]
-    li        = real_idx[-1] if real_idx else 0
+    # Dernière année d'indice réel
+    real_idx = [j for j in range(len(indice_years)) if not np.isnan(scores[j])]
+    li       = real_idx[-1] if real_idx else 0
 
-    real_scores_arr = np.where(is_r, proj_scores, np.nan)
-    # Pour les années réelles, on veut le vrai score (pas la projection)
-    for i in range(len(YEARS_AXIS)):
-        if is_r[i]:
-            real_scores_arr[i] = scores[i] if not np.isnan(scores[i]) else proj_scores[i]
+    # Données brutes alignées sur l'axe standard 2015-2030 (pour le graphe brut)
+    a, b   = np.polyfit(years, np.array(ind["vals"], float), 1)
+    raw_all = np.array([rby.get(y, a*y+b) for y in YEARS_AXIS])
+    raw_real = np.where(np.array([y in rby for y in YEARS_AXIS]), raw_all, np.nan)
 
     return {
-        "scores":      proj_scores,          # toute la plage 2015-2030 (proj incluses)
-        "real_scores": real_scores_arr,      # NaN sur années non réelles
-        "real_raw":    np.where(is_r, all_v, np.nan),
-        "proj_raw":    np.array([a*y+b for y in YEARS_AXIS]),
-        "slope":       slope,
-        "last_score":  float(proj_scores[li]),
-        "prev_score":  float(proj_scores[li-1]) if li > 0 else None,
-        "proj_2030":   float(proj_scores[-1]),
-        "last_real_year": int(YEARS_AXIS[li]),
+        "indice_years": indice_years,        # axe X des indices
+        "scores":       proj_scores,         # indices (réels + extrapolés)
+        "real_scores":  scores,              # NaN sauf indices réels
+        "raw_years":    YEARS_AXIS,          # axe X des données brutes
+        "real_raw":     raw_real,
+        "proj_raw":     raw_all,
+        "slope":        slope,
+        "last_score":   float(scores[li]) if real_idx else float("nan"),
+        "prev_score":   float(scores[li-1]) if li > 0 and not np.isnan(scores[li-1]) else None,
+        "proj_2030":    float(proj_scores[-1]),
+        "last_indice_year": int(indice_years[li]) if real_idx else indice_years[0],
+        "last_data_year":   last_data,
     }
 
 def compute_global(data):
-    """Moyenne des scores par année sur tous les indicateurs (pour la courbe de projection)."""
-    all_scores = []
-    for ind in data.values():
-        s = build_series(ind)
-        all_scores.append(s["scores"])
-    return np.round(np.nanmean(np.vstack(all_scores), axis=0), 2)
+    """
+    ICF par année d'indice, calculé avec la formule unifiée.
+    ICF N = moyenne de compute_score_for_year(ind, N-1) sur tous les indicateurs.
+    Retourne (indice_years, icf_values) alignés.
+    """
+    # Plage d'années d'indice possible
+    first_data = min(min(ind["years"]) for ind in data.values())
+    indice_years = list(range(first_data + 1, 2031))
+    icf_vals = []
+    for iy in indice_years:
+        scores = [compute_score_for_year(ind, iy - 1)[0] for ind in data.values()]
+        icf_vals.append(round(float(np.mean(scores)), 2))
+    return indice_years, np.array(icf_vals)
 
 def get_frozen_icf_series(data):
     """
@@ -303,9 +327,8 @@ def freeze_year_all(target_year):
 # ════════════════════════════════════════════════════════════════════════════
 
 def score_fig(s, label):
-    # L'axe X = années d'indice = années de données + 1
-    # Ex : données 2024 → indice 2025
-    indice_axis = [y + 1 for y in YEARS_AXIS]
+    # Axe X = années d'indice (fourni par build_series)
+    indice_axis = s["indice_years"]
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=indice_axis, y=s["scores"], mode="lines",
@@ -332,13 +355,13 @@ def score_fig(s, label):
 def raw_fig(s, label, unit):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=YEARS_AXIS, y=s["proj_raw"], mode="lines",
+        x=s["raw_years"], y=s["proj_raw"], mode="lines",
         name="Projection linéaire (2015–2030)",
         line=dict(color=RED, dash="dash", width=1.5),
         hovertemplate="%{x}: %{y:,.2f}<extra>Projection</extra>",
     ))
     fig.add_trace(go.Scatter(
-        x=YEARS_AXIS, y=s["real_raw"], mode="lines+markers",
+        x=s["raw_years"], y=s["real_raw"], mode="lines+markers",
         name="Données réelles",
         line=dict(color=BLUE, width=2), marker=dict(size=7, color=BLUE),
         connectgaps=False,
@@ -346,7 +369,7 @@ def raw_fig(s, label, unit):
     ))
     fig.update_layout(
         title=f"Données brutes — {label}", height=400,
-        xaxis=dict(tickvals=YEARS_AXIS, tickangle=45, title="Année"),
+        xaxis=dict(tickvals=s["raw_years"], tickangle=45, title="Année"),
         yaxis=dict(title=unit),
         legend=dict(orientation="h", y=-0.3),
         margin=dict(l=60, r=20, t=50, b=90),
@@ -501,6 +524,9 @@ with st.sidebar:
             st.session_state.show_login_form  = False
             st.session_state.show_create_form = False
             st.session_state.data = copy.deepcopy(st.session_state.saved_data)
+            # Retire le token de l'URL
+            if "s" in st.query_params:
+                del st.query_params["s"]
             st.rerun()
     else:
         # ── Visiteur anonyme ─────────────────────────────────────────────────
@@ -526,6 +552,8 @@ with st.sidebar:
                 if role == "admin":
                     st.session_state.is_admin        = True
                     st.session_state.show_login_form = False
+                    # Persiste l'auth dans l'URL pour survivre aux rafraîchissements
+                    st.query_params["s"] = _admin_token()
                     st.success("Connecté !")
                     st.rerun()
                 else:
@@ -562,8 +590,8 @@ with tabs[0]:
     if not data:
         st.warning("Aucun indicateur disponible.")
     else:
-        gs     = compute_global(data)
-        ag, bg = np.polyfit(YEARS_AXIS, gs, 1)
+        icf_years_axis, gs = compute_global(data)
+        ag, bg = np.polyfit(icf_years_axis, gs, 1)
 
         # ── Sélecteur d'année ICF (admin) ou calcul automatique ─────────────
         import datetime
@@ -760,94 +788,70 @@ with tabs[0]:
         frozen_icf      = get_frozen_icf_series(data)
         current_icf_val = compute_icf_for_year(data, icf_year)
 
-        # ── Série historique 2015–2024 ────────────────────────────────────────
-        # ICF calculé sur les données disponibles à l'époque, fenêtre incomplète
-        # Affiché en gris pour signaler qu'ils sont indicatifs, pas méthodologiquement stricts
-        HIST_START = 2015
-        HIST_END   = 2024  # inclus — avant la fenêtre complète de 10 ans
-        hist_years, hist_vals = [], []
-        for yr in range(HIST_START, HIST_END + 1):
-            target_yr = yr - 1   # données jusqu'à yr-1
-            # Prend toutes les données disponibles jusqu'à target_yr
-            scores_yr = []
-            for ind2 in data.values():
-                avail_years = [y for y in ind2["years"] if y <= target_yr]
-                if not avail_years:
-                    continue
-                # Fenêtre : max 10 ans, ou moins si pas assez d'historique
-                win_end2   = max(avail_years)
-                win_start2 = max(min(avail_years), win_end2 - 9)
-                win_yrs    = list(range(win_start2, win_end2 + 1))
-                a2, b2     = np.polyfit(ind2["years"], ind2["vals"], 1)
-                rby2       = dict(zip(ind2["years"], ind2["vals"]))
-                wv         = np.array([rby2.get(y, a2*y+b2) for y in win_yrs])
-                mu2, sg2   = wv.mean(), wv.std(ddof=1) if len(wv)>1 else 1.0
-                if sg2 == 0: sg2 = 1.0
-                val2  = rby2.get(win_end2, a2*win_end2+b2)
-                zn2   = float(np.clip(((val2-mu2)/sg2+3)/6, 0, 1)*100)
-                sc2   = round(100 - zn2 if ind2["inv"] else zn2, 1)
-                scores_yr.append(sc2)
-            if scores_yr:
-                hist_years.append(yr)
-                hist_vals.append(round(float(np.mean(scores_yr)), 1))
+        # Série ICF unifiée : ICF N = moyenne compute_score_for_year(ind, N-1)
+        # Identique au tableau et aux onglets. Calculée par compute_global.
+        # icf_years_axis et gs sont déjà calculés en haut de l'onglet.
+        # On sépare : indices dont l'année de données (N-1) est réelle vs extrapolée.
+        last_data_global = max(max(ind["years"]) for ind in data.values())
 
-        # Régression sur ICF figés pour projection (ou sur historique si pas encore de gel)
-        ref_x = list(frozen_icf.keys()) if len(frozen_icf) >= 2 else hist_years
-        ref_y = list(frozen_icf.values()) if len(frozen_icf) >= 2 else hist_vals
+        real_icf_years, real_icf_vals = [], []
+        proj_icf_years, proj_icf_vals = [], []
+        for iy, val in zip(icf_years_axis, gs):
+            data_yr = iy - 1
+            # "réel" si au moins un indicateur a une donnée pour data_yr
+            has_real = any(data_yr in ind["years"] for ind in data.values())
+            if has_real and iy <= icf_year:
+                real_icf_years.append(iy); real_icf_vals.append(round(float(val),1))
+            elif iy > icf_year:
+                proj_icf_years.append(iy); proj_icf_vals.append(round(float(val),1))
+
+        # Régression sur ICF figés (sinon sur ICF réels) pour la tendance
+        if len(frozen_icf) >= 2:
+            ref_x, ref_y = list(frozen_icf.keys()), list(frozen_icf.values())
+        else:
+            ref_x, ref_y = real_icf_years, real_icf_vals
         if len(ref_x) >= 2:
             fa, fb     = np.polyfit(ref_x, ref_y, 1)
-            proj_start = min(ref_x + ([icf_year] if icf_year not in frozen_icf else []))
-            proj_years = list(range(proj_start, 2031))
-            proj_vals  = [fa*y+fb for y in proj_years]
+            proj_start = min(real_icf_years) if real_icf_years else icf_year
+            proj_line_years = list(range(proj_start, 2031))
+            proj_line_vals  = [fa*y+fb for y in proj_line_years]
         else:
-            proj_years, proj_vals = [], []
+            proj_line_years, proj_line_vals = [], []
 
         fig_g = go.Figure()
 
-        # Pointillés de projection
-        if proj_years:
+        # Tendance (pointillés rouges)
+        if proj_line_years:
             fig_g.add_trace(go.Scatter(
-                x=proj_years, y=proj_vals,
+                x=proj_line_years, y=proj_line_vals,
                 mode="lines", name="Tendance (projection)",
                 line=dict(color=RED, dash="dash", width=1.5),
             ))
 
-        # Série historique 2015–2024 en gris (fenêtre incomplète, indicatif)
-        if hist_years:
+        # ICF calculés (bleu) — pour toutes les années d'indice réelles
+        # On distingue les figés (marqueur plein) des non-figés (via texte)
+        if real_icf_years:
+            marker_colors = [BLUE if y in frozen_icf else "#7FA8D8"
+                             for y in real_icf_years]
             fig_g.add_trace(go.Scatter(
-                x=hist_years, y=hist_vals,
-                mode="lines+markers+text",
-                name="ICF historique (fenêtre incomplète)",
-                line=dict(color="#6B7280", width=1.5, dash="dot"),
-                marker=dict(size=6, color="#6B7280"),
-                text=[f"{v:.1f}" for v in hist_vals],
-                textposition="top center",
-                textfont=dict(size=9, color="#6B7280"),
-            ))
-
-        # ICF figés (points bleus pleins — définitifs)
-        frozen_x = sorted(frozen_icf.keys())
-        frozen_y = [frozen_icf[y] for y in frozen_x]
-        if frozen_x:
-            fig_g.add_trace(go.Scatter(
-                x=frozen_x, y=frozen_y,
-                mode="lines+markers+text", name="ICF figé (définitif)",
+                x=real_icf_years, y=real_icf_vals,
+                mode="lines+markers+text", name="ICF",
                 line=dict(color=BLUE, width=2.5),
-                marker=dict(size=9, color=BLUE),
-                text=[f"{v:.1f}" for v in frozen_y],
+                marker=dict(size=8, color=marker_colors),
+                text=[f"{v:.1f}" for v in real_icf_vals],
                 textposition="top center", textfont=dict(size=10),
             ))
 
-        # ICF courant non figé (point orange creux — provisoire)
-        if icf_year not in frozen_icf:
-            fig_g.add_trace(go.Scatter(
-                x=[icf_year], y=[current_icf_val],
-                mode="markers+text", name=f"ICF {icf_year} (provisoire)",
-                marker=dict(size=11, color="#F5A623",
-                            symbol="circle-open", line=dict(width=2.5, color="#F5A623")),
-                text=[f"{current_icf_val:.1f}"],
-                textposition="top center", textfont=dict(size=10, color="#F5A623"),
-            ))
+        # ICF sélectionné mis en évidence (orange si non figé, vert si figé)
+        sel_val = frozen_icf.get(icf_year, current_icf_val)
+        sel_color = "#2ECC71" if icf_year in frozen_icf else "#F5A623"
+        sel_name  = f"ICF {icf_year} (figé)" if icf_year in frozen_icf else f"ICF {icf_year} (provisoire)"
+        fig_g.add_trace(go.Scatter(
+            x=[icf_year], y=[sel_val],
+            mode="markers", name=sel_name,
+            marker=dict(size=13, color=sel_color,
+                        symbol="circle", line=dict(width=2, color="white")),
+        ))
 
         fig_g.update_layout(
             title="Évolution ICF Global",
@@ -943,9 +947,8 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
     with tabs[tab_idx]:
         s = build_series(ind)
 
-        last_yr      = s["last_real_year"]          # dernière année de données brutes
-        indice_yr    = last_yr + 1                   # indice correspondant (ex: 2024→2025)
-        # Score de l'indice = compute sur last_yr (fenêtre [last_yr-9, last_yr])
+        last_yr      = s["last_data_year"]           # dernière année de données brutes
+        indice_yr    = last_yr + 1                    # indice correspondant (ex: 2024→2025)
         indice_score, _, _ = compute_score_for_year(ind, last_yr)
         prev_score_val = None
         if last_yr - 1 in ind["years"]:
