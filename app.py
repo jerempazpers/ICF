@@ -757,7 +757,6 @@ with st.sidebar:
                 st.session_state.data       = ensure_categories(copy.deepcopy(ORIGINAL_DATA))
                 st.session_state.saved_data = copy.deepcopy(st.session_state.data)
                 write_save(st.session_state.saved_data)
-                st.session_state.confirm_full_reset = False
                 st.success("Données officielles restaurées et sauvegardées.")
                 st.rerun()
 
