@@ -143,10 +143,26 @@ def write_save(data):
     with open(SAVE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+# ── Catégories Droits / Devoirs (cf. Excel EDLR colonne "Droit/Devoir") ─────
+CATEGORY_MAP = {
+    "participation": "droit",  "presse": "droit",   "decrochage": "droit",
+    "rcds": "droit",           "rsa": "droit",      "pauvrete": "droit",
+    "delinquance": "devoir",   "laicite": "devoir", "salaires": "devoir",
+    "violences": "devoir",     "racisme": "devoir",
+}
+
+def ensure_categories(d):
+    """Injecte la catégorie ('droit'/'devoir') sur chaque indicateur si absente
+    (rétrocompatibilité avec les données sauvegardées avant cette version)."""
+    for key, ind in d.items():
+        if "cat" not in ind:
+            ind["cat"] = CATEGORY_MAP.get(key, "droit")
+    return d
+
 if "saved_data" not in st.session_state:
-    st.session_state.saved_data = load_saved()
+    st.session_state.saved_data = ensure_categories(load_saved())
 if "data" not in st.session_state:
-    st.session_state.data = copy.deepcopy(st.session_state.saved_data)
+    st.session_state.data = ensure_categories(copy.deepcopy(st.session_state.saved_data))
 
 # ════════════════════════════════════════════════════════════════════════════
 # CALCULS
@@ -284,18 +300,36 @@ def build_series(ind):
         "stale_frozen":     stale_frozen,   # [(annee, valeur_figée, valeur_recalculée)]
     }
 
-def compute_global(data, start_year=None):
+def get_indice(ind, icf_year):
     """
-    ICF par année, formule unifiée : ICF N = moyenne des indices N de tous
-    les indicateurs, où indice N = compute_score_for_year(ind, N-1).
-    La période de référence de chaque année suit get_reference_period(N).
+    Indice OFFICIEL d'un indicateur pour une année d'ICF donnée.
+    PRIORITÉ ABSOLUE au score figé : frozen_scores[str(icf_year)] s'il existe
+    (un indice figé ne bouge plus JAMAIS, même si les données changent).
+    Sinon, calcul à la volée : compute_score_for_year(ind, icf_year - 1).
+    C'est LA fonction de référence — courbe, tableau, métrique l'utilisent tous.
+    """
+    frozen = ind.get("frozen_scores", {})
+    if str(icf_year) in frozen:
+        return float(frozen[str(icf_year)])
+    sc, _, _ = compute_score_for_year(ind, icf_year - 1)
+    return float(sc)
+
+def compute_global(data, start_year=None, cat=None):
+    """
+    ICF par année : moyenne des indices officiels (get_indice) — les scores
+    figés sont respectés en priorité.
+    cat : None = tous les indicateurs (ICF global) ;
+          "droit"/"devoir" = sous-ICF de la catégorie.
     Retourne (icf_years, icf_values) alignés, depuis 2015 par défaut.
     """
     axis_start = start_year if start_year is not None else BASE_YEAR_0
+    inds = [ind for ind in data.values() if cat is None or ind.get("cat") == cat]
     icf_years = list(range(axis_start, 2031))
+    if not inds:
+        return icf_years, np.full(len(icf_years), np.nan)
     icf_vals = []
     for iy in icf_years:
-        scores = [compute_score_for_year(ind, iy - 1)[0] for ind in data.values()]
+        scores = [get_indice(ind, iy) for ind in inds]
         icf_vals.append(round(float(np.mean(scores)), 2))
     return icf_years, np.array(icf_vals)
 
@@ -317,15 +351,10 @@ def get_frozen_icf_series(data):
 
 def compute_icf_for_year(data, icf_year):
     """
-    Calcule l'ICF d'une année donnée à la volée (non figé).
-    ICF année X = moyenne de compute_score_for_year(ind, X-1) pour tous les indicateurs.
-    Fenêtre : [X-10, X-1] (10 ans de données).
+    ICF d'une année = moyenne des indices officiels (figés prioritaires,
+    sinon calculés à la volée).
     """
-    target = icf_year - 1
-    scores = []
-    for ind in data.values():
-        sc, _, _ = compute_score_for_year(ind, target)
-        scores.append(sc)
+    scores = [get_indice(ind, icf_year) for ind in data.values()]
     return round(float(np.mean(scores)), 1)
 
 def freeze_year(key, target_year):
@@ -482,6 +511,7 @@ def do_create(label, unit, inv, rows_df):
         return None, "Il faut au moins 2 points de données."
 
     new_ind = {"label": label.strip(), "unit": unit.strip() or "valeur",
+               "cat": st.session_state.get("new_ind_cat", "droit"),
                "inv": inv, "years": years, "vals": vals}
     st.session_state.data[slug]       = new_ind
     st.session_state.saved_data[slug] = copy.deepcopy(new_ind)
@@ -525,6 +555,14 @@ with st.sidebar:
                     else "↑ Hausse = mauvais (ex : chômage)"
                 ),
                 help="Détermine si une valeur qui monte améliore ou dégrade le score."
+            )
+            st.radio(
+                "Catégorie",
+                options=["droit", "devoir"],
+                format_func=lambda c: "⚖️ Droits" if c == "droit" else "📜 Devoirs",
+                key="new_ind_cat",
+                horizontal=True,
+                help="Rattache l'indicateur au sous-score ICF Droits ou ICF Devoirs."
             )
 
             st.caption("Saisir les données année par année :")
@@ -648,6 +686,11 @@ with tabs[0]:
         # Série ICF unique (référence cumulative) — démarre à 2015
         icf_years_axis, gs = compute_global(data)
         ag, bg = np.polyfit(icf_years_axis, gs, 1)
+        # Sous-séries Droits / Devoirs (mêmes règles : get_indice, gels respectés)
+        _, gs_droits  = compute_global(data, cat="droit")
+        _, gs_devoirs = compute_global(data, cat="devoir")
+        n_droits  = sum(1 for ind in data.values() if ind.get("cat") == "droit")
+        n_devoirs = sum(1 for ind in data.values() if ind.get("cat") == "devoir")
 
         # ── Sélecteur d'année ICF (admin) ou calcul automatique ─────────────
         import datetime
@@ -758,15 +801,12 @@ with tabs[0]:
 
         # ── Cas normal : calcul ICF ─────────────────────────────────────────
         else:
-            # ICF 2025 = pour chaque indicateur, score sur fenêtre [2015, 2024]
-            # = compute_score_for_year(ind, target_data_yr=2024)
-            # On calcule DIRECTEMENT, sans passer par gs (qui utilise build_series
-            # avec des fenêtres variables selon les données de chaque indicateur).
-            # Cela garantit que tous les indicateurs sont comparés sur la MÊME fenêtre.
+            # ICF officiel = moyenne des indices officiels (get_indice) :
+            # score FIGÉ prioritaire, sinon calcul à la volée.
+            # → strictement identique à la courbe et à la ligne ICF du tableau.
             icf_scores_direct = {}
             for key, ind in data.items():
-                sc, _, _ = compute_score_for_year(ind, target_data_yr)
-                icf_scores_direct[key] = sc
+                icf_scores_direct[key] = get_indice(ind, icf_year)
             icf_last = round(float(np.mean(list(icf_scores_direct.values()))), 1)
 
             c1.metric(f"ICF {icf_year}", f"{icf_last:.1f} / 100",
@@ -775,6 +815,16 @@ with tabs[0]:
             c2.metric("Tendance",           f"{ag:+.2f} pts/an")
             c3.metric("Projection 2030",    f"{gs[-1]:.1f} / 100")
             c4.metric("Indicateurs actifs", len(data))
+
+            # ── Sous-scores Droits / Devoirs ─────────────────────────────────
+            _iy_idx = icf_years_axis.index(icf_year)
+            d1, d2, _sp = st.columns([1, 1, 2])
+            d1.metric(f"⚖️ ICF Droits {icf_year}",
+                      f"{gs_droits[_iy_idx]:.1f} / 100",
+                      help=f"Moyenne des {n_droits} indicateurs de la catégorie Droits")
+            d2.metric(f"📜 ICF Devoirs {icf_year}",
+                      f"{gs_devoirs[_iy_idx]:.1f} / 100",
+                      help=f"Moyenne des {n_devoirs} indicateurs de la catégorie Devoirs")
 
             if late_inds:
                 st.info(
@@ -920,6 +970,24 @@ with tabs[0]:
                 line=dict(color=RED, dash="dash", width=1.5),
             ))
 
+        # ── Courbes Droits / Devoirs (jusqu'à icf_year) ──────────────────────
+        sub_years = [iy for iy in icf_years_axis if iy <= icf_year]
+        n_sub = len(sub_years)
+        fig_g.add_trace(go.Scatter(
+            x=sub_years, y=[float(v) for v in gs_droits[:n_sub]],
+            mode="lines+markers", name="ICF Droits",
+            line=dict(color="#26C6DA", width=1.6, dash="dot"),
+            marker=dict(size=5, color="#26C6DA"),
+            hovertemplate="Droits %{x}: %{y:.1f}<extra></extra>",
+        ))
+        fig_g.add_trace(go.Scatter(
+            x=sub_years, y=[float(v) for v in gs_devoirs[:n_sub]],
+            mode="lines+markers", name="ICF Devoirs",
+            line=dict(color="#EC407A", width=1.6, dash="dot"),
+            marker=dict(size=5, color="#EC407A"),
+            hovertemplate="Devoirs %{x}: %{y:.1f}<extra></extra>",
+        ))
+
         # ICF calculés (bleu) — pour toutes les années d'indice réelles
         # On distingue les figés (marqueur plein) des non-figés (via texte)
         if real_icf_years:
@@ -979,7 +1047,8 @@ with tabs[0]:
         # (2015–2024 affichés à titre indicatif : même référence 2015-2024)
         icf_cols = list(range(BASE_YEAR_0, icf_year + 1))
 
-        ind_labels = [ind["label"] for ind in data.values()] + ["🏆 ICF"]
+        ind_labels = ([ind["label"] for ind in data.values()]
+                      + ["⚖️ ICF Droits", "📜 ICF Devoirs", "🏆 ICF"])
 
         cell_vals   = []  # une liste par colonne
         cell_colors = []  # couleur par cellule
@@ -1000,7 +1069,16 @@ with tabs[0]:
                     col_vals.append(f"{sc:.1f}")
                     col_colors.append("#1E4A8C" if is_real else "#5A3E7A")
                 col_scores.append(float(sc))
-            # Ligne ICF = moyenne des indices de la colonne
+            # Lignes ICF Droits / Devoirs / global (moyennes de la colonne)
+            cats = [ind.get("cat") for ind in data.values()]
+            droits_sc  = [s for s, c in zip(col_scores, cats) if c == "droit"]
+            devoirs_sc = [s for s, c in zip(col_scores, cats) if c == "devoir"]
+            for subset, color in ((droits_sc, "#00838F"), (devoirs_sc, "#AD1457")):
+                if subset:
+                    col_vals.append(f"<b>{np.mean(subset):.1f}</b>")
+                else:
+                    col_vals.append("—")
+                col_colors.append(color)
             icf_cell = round(float(np.mean(col_scores)), 1)
             col_vals.append(f"<b>{icf_cell:.1f}</b>")
             col_colors.append("#B8860B")   # doré = ligne ICF
