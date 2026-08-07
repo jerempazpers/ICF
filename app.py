@@ -970,24 +970,6 @@ with tabs[0]:
                 line=dict(color=RED, dash="dash", width=1.5),
             ))
 
-        # ── Courbes Droits / Devoirs (jusqu'à icf_year) ──────────────────────
-        sub_years = [iy for iy in icf_years_axis if iy <= icf_year]
-        n_sub = len(sub_years)
-        fig_g.add_trace(go.Scatter(
-            x=sub_years, y=[float(v) for v in gs_droits[:n_sub]],
-            mode="lines+markers", name="ICF Droits",
-            line=dict(color="#26C6DA", width=1.6, dash="dot"),
-            marker=dict(size=5, color="#26C6DA"),
-            hovertemplate="Droits %{x}: %{y:.1f}<extra></extra>",
-        ))
-        fig_g.add_trace(go.Scatter(
-            x=sub_years, y=[float(v) for v in gs_devoirs[:n_sub]],
-            mode="lines+markers", name="ICF Devoirs",
-            line=dict(color="#EC407A", width=1.6, dash="dot"),
-            marker=dict(size=5, color="#EC407A"),
-            hovertemplate="Devoirs %{x}: %{y:.1f}<extra></extra>",
-        ))
-
         # ICF calculés (bleu) — pour toutes les années d'indice réelles
         # On distingue les figés (marqueur plein) des non-figés (via texte)
         if real_icf_years:
@@ -1022,6 +1004,50 @@ with tabs[0]:
             margin=dict(l=50, r=20, t=55, b=100),
         )
         st.plotly_chart(fig_g, use_container_width=True)
+
+        # ── Graphes séparés : ICF Droits / ICF Devoirs ───────────────────────
+        def _cat_fig(title, series, color, n_count):
+            sub_years = [iy for iy in icf_years_axis if iy <= icf_year]
+            n = len(sub_years)
+            vals = [float(v) for v in series[:n]]
+            fig = go.Figure()
+            # Tendance : régression sur la sous-série, projetée jusqu'à 2030
+            valid = [(y, v) for y, v in zip(sub_years, vals) if not np.isnan(v)]
+            if len(valid) >= 2:
+                vx, vy = zip(*valid)
+                ca, cb = np.polyfit(vx, vy, 1)
+                proj_x = list(range(sub_years[0], 2031))
+                fig.add_trace(go.Scatter(
+                    x=proj_x, y=[ca*y+cb for y in proj_x],
+                    mode="lines", name="Tendance (projection)",
+                    line=dict(color=RED, dash="dash", width=1.5),
+                ))
+            fig.add_trace(go.Scatter(
+                x=sub_years, y=vals,
+                mode="lines+markers+text", name=title,
+                line=dict(color=color, width=2.2),
+                marker=dict(size=7, color=color),
+                text=[f"{v:.1f}" for v in vals],
+                textposition="top center", textfont=dict(size=9, color=color),
+            ))
+            fig.update_layout(
+                title=f"{title} ({n_count} indicateurs)",
+                height=340,
+                xaxis=dict(tickvals=list(range(2015, 2031)), tickangle=45,
+                           title="Année ICF"),
+                yaxis=dict(range=[0, 100], title="Score (0–100)"),
+                legend=dict(orientation="h", y=-0.35),
+                margin=dict(l=45, r=15, t=45, b=85),
+            )
+            return fig
+
+        col_dr, col_dv = st.columns(2)
+        with col_dr:
+            st.plotly_chart(_cat_fig("⚖️ ICF Droits", gs_droits, "#26C6DA", n_droits),
+                            use_container_width=True)
+        with col_dv:
+            st.plotly_chart(_cat_fig("📜 ICF Devoirs", gs_devoirs, "#EC407A", n_devoirs),
+                            use_container_width=True)
 
         # ── Tableau des indices par indicateur + ligne ICF ───────────────────
         # Terminologie : "indice" = score d'un indicateur ; "ICF" = moyenne globale
@@ -1115,6 +1141,17 @@ with tabs[0]:
 
 for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
     with tabs[tab_idx]:
+        # ── Badge de catégorie Droits / Devoirs ──────────────────────────────
+        _cat = ind.get("cat", "droit")
+        _badge, _bcolor = (("⚖️ Catégorie : Droits", "#26C6DA") if _cat == "droit"
+                           else ("📜 Catégorie : Devoirs", "#EC407A"))
+        st.markdown(
+            f"<span style='background:{_bcolor}22;border:1px solid {_bcolor};"
+            f"color:{_bcolor};padding:3px 12px;border-radius:12px;"
+            f"font-size:13px;font-weight:600;'>{_badge}</span>",
+            unsafe_allow_html=True
+        )
+
         s = build_series(ind)
 
         last_yr      = s["last_data_year"]           # dernière année de données brutes
