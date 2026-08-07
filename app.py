@@ -2,7 +2,8 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import json, copy, os, hashlib
+import json, copy, os, hashlib, base64, time
+import requests
 
 st.set_page_config(
     page_title="ICF — Les Enfants de la République",
@@ -147,16 +148,120 @@ IS_ADMIN = st.session_state.is_admin
 # PERSISTANCE
 # ════════════════════════════════════════════════════════════════════════════
 
+# ════════════════════════════════════════════════════════════════════════════
+# PERSISTANCE DURABLE VIA GITHUB
+# Le disque de Streamlit Cloud est effacé à chaque déploiement. Pour que
+# "Sauvegarder pour toujours" survive aux push, le fichier de données est
+# aussi stocké dans le dépôt GitHub, sur une branche dédiée ("data") qui ne
+# déclenche PAS de redéploiement (Streamlit ne suit que la branche main).
+# Configuration (Settings → Secrets de l'app Streamlit) :
+#   github_token = "ghp_…"              (token avec le scope repo)
+#   github_repo  = "utilisateur/repo"   (ex : "jerempazpers/icf")
+#   github_data_branch = "data"         (optionnel, défaut "data")
+# ════════════════════════════════════════════════════════════════════════════
+
+def _gh_conf():
+    try:
+        tok    = st.secrets.get("github_token", "")
+        repo   = st.secrets.get("github_repo", "")
+        branch = st.secrets.get("github_data_branch", "data")
+        if tok and repo:
+            return tok, repo, branch
+    except Exception:
+        pass
+    return None
+
+def _gh_headers(tok):
+    return {"Authorization": f"token {tok}",
+            "Accept": "application/vnd.github+json"}
+
+def gh_load():
+    """Charge le JSON de données depuis la branche data du dépôt GitHub."""
+    conf = _gh_conf()
+    if not conf:
+        return None
+    tok, repo, branch = conf
+    try:
+        r = requests.get(
+            f"https://api.github.com/repos/{repo}/contents/{SAVE_FILE}",
+            params={"ref": branch}, headers=_gh_headers(tok), timeout=10)
+        if r.status_code == 200:
+            return json.loads(base64.b64decode(r.json()["content"]).decode("utf-8"))
+    except Exception:
+        pass
+    return None
+
+def _gh_ensure_branch(tok, repo, branch):
+    """Crée la branche data si elle n'existe pas (à partir de main/master)."""
+    h = _gh_headers(tok)
+    r = requests.get(f"https://api.github.com/repos/{repo}/git/ref/heads/{branch}",
+                     headers=h, timeout=10)
+    if r.status_code == 200:
+        return True
+    for base in ("main", "master"):
+        rb = requests.get(f"https://api.github.com/repos/{repo}/git/ref/heads/{base}",
+                          headers=h, timeout=10)
+        if rb.status_code == 200:
+            sha = rb.json()["object"]["sha"]
+            rc = requests.post(f"https://api.github.com/repos/{repo}/git/refs",
+                               headers=h, timeout=10,
+                               json={"ref": f"refs/heads/{branch}", "sha": sha})
+            return rc.status_code in (200, 201)
+    return False
+
+def gh_save(data):
+    """Écrit le JSON de données sur la branche data du dépôt. Best-effort."""
+    conf = _gh_conf()
+    if not conf:
+        return False, "Persistance GitHub non configurée (voir Secrets)."
+    tok, repo, branch = conf
+    try:
+        _gh_ensure_branch(tok, repo, branch)
+        api = f"https://api.github.com/repos/{repo}/contents/{SAVE_FILE}"
+        h   = _gh_headers(tok)
+        r   = requests.get(api, params={"ref": branch}, headers=h, timeout=10)
+        sha = r.json().get("sha") if r.status_code == 200 else None
+        payload = {
+            "message": time.strftime("Sauvegarde ICF %Y-%m-%d %H:%M:%S"),
+            "content": base64.b64encode(
+                json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+            ).decode("ascii"),
+            "branch": branch,
+        }
+        if sha:
+            payload["sha"] = sha
+        r = requests.put(api, headers=h, json=payload, timeout=15)
+        if r.status_code in (200, 201):
+            return True, "OK"
+        return False, str(r.json().get("message", r.status_code))
+    except Exception as e:
+        return False, str(e)
+
 def load_saved():
+    # 1. Fichier local (le plus frais pendant une session)
     if os.path.exists(SAVE_FILE):
         try:
-            with open(SAVE_FILE, "r", encoding="utf-8") as f: return json.load(f)
-        except Exception: pass
+            with open(SAVE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    # 2. GitHub (survit aux redéploiements)
+    gh = gh_load()
+    if gh:
+        try:  # re-crée le cache local
+            with open(SAVE_FILE, "w", encoding="utf-8") as f:
+                json.dump(gh, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        return gh
+    # 3. Données par défaut gravées dans le code
     return copy.deepcopy(ORIGINAL_DATA)
 
 def write_save(data):
     with open(SAVE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    ok, msg = gh_save(data)
+    st.session_state.gh_last_save = (ok, msg, time.strftime("%H:%M:%S"))
 
 # ── Catégories Droits / Devoirs (cf. Excel EDLR colonne "Droit/Devoir") ─────
 CATEGORY_MAP = {
@@ -627,6 +732,35 @@ with st.sidebar:
                         st.rerun()
 
         st.divider()
+        # ── État de la persistance durable ───────────────────────────────────
+        if _gh_conf() is None:
+            st.warning("⚠️ Persistance GitHub non configurée : les sauvegardes "
+                       "seront perdues au prochain déploiement. Ajoutez "
+                       "`github_token` et `github_repo` dans les Secrets de l'app.")
+        elif "gh_last_save" in st.session_state:
+            ok, msg, hhmm = st.session_state.gh_last_save
+            if ok:
+                st.caption(f"☁️ Sauvegardé sur GitHub à {hhmm}")
+            else:
+                st.error(f"☁️ Échec sauvegarde GitHub ({hhmm}) : {msg}")
+        else:
+            st.caption("☁️ Persistance GitHub active")
+
+        with st.expander("🛠 Maintenance"):
+            st.caption("Réinitialise TOUTES les données aux valeurs officielles "
+                       "gravées dans le code (Excel v4 + gels 2025), et remplace "
+                       "la sauvegarde locale ET GitHub.")
+            confirm_reset = st.checkbox("Je confirme la réinitialisation totale",
+                                        key="confirm_full_reset")
+            if st.button("♻️ Réinitialiser aux données officielles",
+                         disabled=not confirm_reset, use_container_width=True):
+                st.session_state.data       = ensure_categories(copy.deepcopy(ORIGINAL_DATA))
+                st.session_state.saved_data = copy.deepcopy(st.session_state.data)
+                write_save(st.session_state.saved_data)
+                st.session_state.confirm_full_reset = False
+                st.success("Données officielles restaurées et sauvegardées.")
+                st.rerun()
+
         if st.button("🚪 Se déconnecter", use_container_width=True):
             st.session_state.is_admin         = False
             st.session_state.show_login_form  = False
