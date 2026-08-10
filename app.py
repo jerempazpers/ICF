@@ -20,75 +20,85 @@ BLUE, RED = "#378ADD", "#E24B4A"
 # ════════════════════════════════════════════════════════════════════════════
 
 ORIGINAL_DATA = {
-    "racisme": {
-        "label": "Infractions racistes", "unit": "nb infractions",
-        "inv": True, "cat": "devoir",
-        "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-        "vals": [9185, 8637, 9267, 10842, 11312, 13064, 12618, 15000, 16335, 16485],
-        "frozen_scores": {"2025": 21.6},
-    },
     "participation": {
-        "label": "Participation électorale", "unit": "%",
-        "inv": False, "cat": "droit",
+        "label": "INDICE 1 - Taux de participation moyen aux élections nationales et locales",
+        "short": "1. Participation",
+        "unit": "%", "inv": False, "cat": "droit",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
         "vals": [60.05875, 60, 56.5175, 56.5175, 56.5175, 52.02375, 47.415, 46.9275, 46.88375, 50.29125, 50.3],
         "frozen_scores": {"2025": 40.4},
     },
     "presse": {
-        "label": "Liberté de la presse (rang RSF)", "unit": "rang",
-        "inv": True, "cat": "droit",
+        "label": "INDICE 2 - Classement RSF de la liberté de la presse",
+        "short": "2. Presse (RSF)",
+        "unit": "rang", "inv": True, "cat": "droit",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
         "vals": [38, 45, 39, 33, 32, 34, 34, 26, 24, 21, 25],
         "frozen_scores": {"2025": 76.5},
     },
+    "decrochage": {
+        "label": "INDICE 3 - Taux d'échec scolaire pour les 18-24 ans",
+        "short": "3. Échec scolaire",
+        "unit": "%", "inv": True, "cat": "droit",
+        "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+        "vals": [9.2, 8.8, 8.8, 8.7, 8.2, 8, 7.8, 7.6, 7.6, 7.9, 7.2],
+        "frozen_scores": {"2025": 60.5},
+    },
+    "rcds": {
+        "label": "INDICE 4 - Nb. de réservistes citoyens de défense et de sécurité (RCDS)",
+        "short": "4. Réservistes",
+        "unit": "effectifs", "inv": False, "cat": "droit",
+        "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+        "vals": [4062, 4251, 5230, 5544, 5732, 5729, 5847, 6117, 6523, 6414, 6147],
+        "frozen_scores": {"2025": 67.5},
+    },
+    "rsa": {
+        "label": "INDICE 5 - Nb Allocataire Minima sociaux",
+        "short": "5. Minima sociaux",
+        "unit": "%", "inv": False, "cat": "droit",
+        "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023],
+        "vals": [7.72368676771166, 7.586442401986661, 7.676919454692048, 7.678971531865303, 7.730308222546486, 8.020831649432282, 7.712203575595507, 7.697367765164609, 7.7],
+        "frozen_scores": {"2025": 57.2},
+    },
     "delinquance": {
-        "label": "Délinquance", "unit": "nb crimes et délits",
-        "inv": True, "cat": "devoir",
+        "label": "INDICE 6 - Faits de délinquances signalés à l'endroit des personnes",
+        "short": "6. Délinquance",
+        "unit": "nb crimes et délits", "inv": True, "cat": "devoir",
         "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
         "vals": [3168570, 3190310, 3153413, 3219475, 2794838, 3020318, 3308943, 3382111, 3368566, 3442183],
         "frozen_scores": {"2025": 30.9},
     },
     "laicite": {
-        "label": "Incidents laïcité", "unit": "nb incidents",
-        "inv": True, "cat": "devoir",
+        "label": "INDICE 7 - Nb d'incidents signalés à l'école pour motif religieux",
+        "short": "7. Laïcité école",
+        "unit": "nb incidents", "inv": True, "cat": "devoir",
         "years": [2020, 2021, 2022, 2023, 2024, 2025],
         "vals": [935, 2226, 2167, 4710, 6554, 4230],
         "frozen_scores": {"2025": 19.8},
     },
     "salaires": {
-        "label": "Écart salaires H/F", "unit": "%",
-        "inv": True, "cat": "devoir",
+        "label": "INDICE 8 - Écart salarial moyen hommes/femmes à temps égal",
+        "short": "8. Écart salarial",
+        "unit": "%", "inv": True, "cat": "devoir",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
         "vals": [19.1, 18.4, 17.9, 17.5, 16.6, 15.8, 15.5, 14.8, 14.2, 14],
         "frozen_scores": {"2025": 72.1},
     },
-    "decrochage": {
-        "label": "Décrochage scolaire", "unit": "%",
-        "inv": True, "cat": "droit",
-        "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-        "vals": [9.2, 8.8, 8.8, 8.7, 8.2, 8, 7.8, 7.6, 7.6, 7.9, 7.2],
-        "frozen_scores": {"2025": 60.5},
-    },
     "violences": {
-        "label": "Violences faites aux femmes", "unit": "nb cas",
-        "inv": True, "cat": "devoir",
+        "label": "INDICE 9 - Nb de femmes victimes de violences au sein du couple",
+        "short": "9. Violences couple",
+        "unit": "nb cas", "inv": True, "cat": "devoir",
         "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
         "vals": [16916, 16829, 17908, 20200, 22764, 33040, 35138, 37176, 38006],
         "frozen_scores": {"2025": 28.2},
     },
-    "rsa": {
-        "label": "Minima sociaux (RSA)", "unit": "%",
-        "inv": False, "cat": "droit",
-        "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023],
-        "vals": [7.72368676771166, 7.586442401986661, 7.676919454692048, 7.678971531865303, 7.730308222546486, 8.020831649432282, 7.712203575595507, 7.697367765164609, 7.7],
-        "frozen_scores": {"2025": 57.2},
-    },
-    "rcds": {
-        "label": "Réservistes RCDS", "unit": "effectifs",
-        "inv": False, "cat": "droit",
-        "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-        "vals": [4062, 4251, 5230, 5544, 5732, 5729, 5847, 6117, 6523, 6414, 6147],
-        "frozen_scores": {"2025": 67.5},
+    "racisme": {
+        "label": "INDICE 10 - Nombre d'infractions à \"caractère raciste\"",
+        "short": "10. Racisme",
+        "unit": "nb infractions", "inv": True, "cat": "devoir",
+        "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+        "vals": [9185, 8637, 9267, 10842, 11312, 13064, 12618, 15000, 16335, 16485],
+        "frozen_scores": {"2025": 21.6},
     },
 }
 
@@ -271,12 +281,24 @@ CATEGORY_MAP = {
     "violences": "devoir",     "racisme": "devoir",
 }
 
+OFFICIAL_ORDER = ["participation", "presse", "decrochage", "rcds", "rsa",
+                  "delinquance", "laicite", "salaires", "violences", "racisme"]
+
 def ensure_categories(d):
-    """Injecte la catégorie ('droit'/'devoir') sur chaque indicateur si absente
-    (rétrocompatibilité avec les données sauvegardées avant cette version)."""
+    """Rétrocompatibilité des données sauvegardées : injecte la catégorie,
+    aligne les libellés officiels (label/short) et remet l'ordre officiel
+    INDICE 1 → 10. Les indicateurs personnalisés inconnus passent à la fin."""
     for key, ind in d.items():
         if "cat" not in ind:
             ind["cat"] = CATEGORY_MAP.get(key, "droit")
+        if key in ORIGINAL_DATA:
+            ind["label"] = ORIGINAL_DATA[key]["label"]
+            ind["short"] = ORIGINAL_DATA[key]["short"]
+    ordered = {k: d[k] for k in OFFICIAL_ORDER if k in d}
+    for k in d:
+        if k not in ordered:
+            ordered[k] = d[k]
+    d.clear(); d.update(ordered)
     return d
 
 if "saved_data" not in st.session_state:
@@ -820,7 +842,7 @@ st.caption("Les Enfants de la République · Indice de Citoyenneté Française �
 
 data           = st.session_state.data
 max_year_global = max(max(ind["years"]) for ind in data.values()) if data else 2024
-tab_names = ["ICF Global"] + [ind["label"] for ind in data.values()]
+tab_names = ["ICF Global"] + [ind.get("short", ind["label"]) for ind in data.values()]
 tabs      = st.tabs(tab_names)
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -896,7 +918,7 @@ with tabs[0]:
                         last_val = ind["vals"][-1] if ind["vals"] else 0
                         col_lbl, col_inp = st.columns([3, 2])
                         col_lbl.markdown(
-                            f"**{ind['label']}**  \n"
+                            f"**{ind.get('short', ind['label'])}**  \n"
                             f"<span style='color:#888;font-size:12px;'>"
                             f"{ind['unit']} · dernière valeur ({max(ind['years'])}) : "
                             f"{last_val:g}</span>",
@@ -1108,6 +1130,23 @@ with tabs[0]:
         else:
             proj_line_years, proj_line_vals = [], []
 
+        # ── Échelle automatique (zoom sur les variations) ────────────────────
+        auto_zoom = st.toggle(
+            "🔍 Échelle automatique",
+            value=True, key="auto_zoom_global",
+            help="Ajuste l'axe vertical aux valeurs pour mieux voir les variations "
+                 "(désactiver pour l'échelle complète 0–100)."
+        )
+
+        def _y_range(all_vals):
+            """Range Y : zoomé sur les valeurs (avec marge) ou 0-100."""
+            vals = [float(v) for v in all_vals if v is not None and not np.isnan(v)]
+            if not auto_zoom or not vals:
+                return [0, 100]
+            lo, hi = min(vals), max(vals)
+            pad = max(2.0, (hi - lo) * 0.15)
+            return [max(0, lo - pad), min(100, hi + pad)]
+
         fig_g = go.Figure()
 
         # Tendance (pointillés rouges)
@@ -1143,11 +1182,13 @@ with tabs[0]:
                         symbol="circle", line=dict(width=2, color="white")),
         ))
 
+        _all_main_vals = (list(real_icf_vals) + list(proj_line_vals)
+                          + ([sel_val] if 'sel_val' in locals() else []))
         fig_g.update_layout(
             title="Évolution ICF Global",
             height=460,
             xaxis=dict(tickvals=list(range(2015, 2031)), tickangle=45, title="Année ICF"),
-            yaxis=dict(range=[0, 100], title="Score ICF (0–100)"),
+            yaxis=dict(range=_y_range(_all_main_vals), title="Score ICF (0–100)"),
             legend=dict(orientation="h", y=-0.28),
             margin=dict(l=50, r=20, t=55, b=100),
         )
@@ -1178,12 +1219,15 @@ with tabs[0]:
                 text=[f"{v:.1f}" for v in vals],
                 textposition="top center", textfont=dict(size=9, color=color),
             ))
+            _cat_vals = list(vals)
+            if len(valid) >= 2:
+                _cat_vals += [ca*y+cb for y in proj_x]
             fig.update_layout(
                 title=f"{title} ({n_count} indicateurs)",
                 height=340,
                 xaxis=dict(tickvals=list(range(2015, 2031)), tickangle=45,
                            title="Année ICF"),
-                yaxis=dict(range=[0, 100], title="Score (0–100)"),
+                yaxis=dict(range=_y_range(_cat_vals), title="Score (0–100)"),
                 legend=dict(orientation="h", y=-0.35),
                 margin=dict(l=45, r=15, t=45, b=85),
             )
@@ -1260,6 +1304,7 @@ with tabs[0]:
             cell_colors.append(col_colors)
 
         fig_table = go.Figure(data=[go.Table(
+            columnwidth=[3.2] + [1] * len(icf_cols),
             header=dict(
                 values=["<b>Indicateur</b>"] + [f"<b>{y}</b>" for y in icf_cols],
                 fill_color="#0D1B2A",
