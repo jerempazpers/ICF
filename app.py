@@ -367,79 +367,68 @@ def compute_score_for_year(ind, target_year):
 
 def build_series(ind):
     """
-    Construit la série des INDICES pour affichage.
+    Séries pour AFFICHAGE, indexées par ANNÉE DE DONNÉES (convention Excel).
 
-    CONVENTION UNIFIÉE (identique au tableau ICF global) :
-      Indice N = compute_score_for_year(ind, N-1)
-               = valeur de l'année (N-1) normalisée sur la fenêtre [N-10, N-1]
+    Le point affiché à l'année Y = indice calculé sur la valeur de l'année Y,
+    avec la référence de l'ICF (Y+1) — c'est l'indice qui alimente l'ICF Y+1.
+    Ex : point 2025 = valeur 2025 normalisée (référence 2015-2025) = ICF 2026.
 
-    L'axe "année d'indice" va de (première_donnée+1) à 2030.
-    - Indices dont l'année de données (N-1) est réelle → point plein
-    - Indices dont l'année de données (N-1) est extrapolée → projection
-    - frozen_scores[str(N)] écrase le calcul si présent (score figé définitif)
+    frozen_scores[str(Y+1)] (gel de l'ICF Y+1) écrase le point Y.
     """
     years  = np.array(ind["years"])
     rby    = dict(zip(ind["years"], ind["vals"]))
-    frozen = ind.get("frozen_scores", {})   # {"2025": 21.6, ...}
+    frozen = ind.get("frozen_scores", {})   # {"2025": …} = gel de l'ICF 2025 → point 2024
 
     first_data = int(years.min())
     last_data  = int(years.max())
 
-    # Axe des années d'INDICE : depuis 2015 (affichage indicatif inclus)
-    indice_years = list(range(BASE_YEAR_0, 2031))
+    # Axe des années de DONNÉES : 2015 → 2029 (le point 2029 = ICF 2030)
+    data_axis = list(range(BASE_YEAR_0, 2030))
 
-    scores      = np.full(len(indice_years), np.nan)  # indice réel (année données réelle)
-    proj_scores = np.full(len(indice_years), np.nan)  # tous (réels + extrapolés)
-    stale_frozen = []   # indices figés qui divergent du recalcul (données changées depuis)
+    scores       = np.full(len(data_axis), np.nan)  # points "réels" (donnée réelle)
+    proj_scores  = np.full(len(data_axis), np.nan)  # tous (réels + extrapolés)
+    stale_frozen = []   # gels divergents du recalcul (données modifiées après gel)
 
-    for i, iy in enumerate(indice_years):
-        data_yr = iy - 1  # année de données correspondante
-        str_iy  = str(iy)
-        # Calcul "live" (données actuelles)
-        sc_live, _, _ = compute_score_for_year(ind, data_yr)
-        if str_iy in frozen:
-            scores[i]      = frozen[str_iy]
-            proj_scores[i] = frozen[str_iy]
-            # Le figé diverge-t-il du recalcul actuel ? (données modifiées depuis le gel)
-            if abs(frozen[str_iy] - sc_live) > 0.05:
-                stale_frozen.append((iy, frozen[str_iy], sc_live))
+    for i, y in enumerate(data_axis):
+        icf_of_point = str(y + 1)
+        sc_live, _, _ = compute_score_for_year(ind, y)
+        if icf_of_point in frozen:
+            scores[i]      = frozen[icf_of_point]
+            proj_scores[i] = frozen[icf_of_point]
+            if abs(frozen[icf_of_point] - sc_live) > 0.05:
+                stale_frozen.append((int(icf_of_point), frozen[icf_of_point], sc_live))
         else:
             proj_scores[i] = sc_live
-            if data_yr in rby:          # donnée réelle → indice "réel"
+            if y in rby:
                 scores[i] = sc_live
 
-    # Régression sur les indices réels pour la tendance
-    known_i = [indice_years[j] for j in range(len(indice_years)) if not np.isnan(scores[j])]
-    known_s = [scores[j]        for j in range(len(indice_years)) if not np.isnan(scores[j])]
-    if len(known_i) >= 2:
-        as_, bs_ = np.polyfit(known_i, known_s, 1)
-        slope = round(float(as_), 3)
-    else:
-        slope = 0.0
+    # Tendance sur les points réels
+    known_x = [data_axis[j] for j in range(len(data_axis)) if not np.isnan(scores[j])]
+    known_s = [scores[j]    for j in range(len(data_axis)) if not np.isnan(scores[j])]
+    slope = round(float(np.polyfit(known_x, known_s, 1)[0]), 3) if len(known_x) >= 2 else 0.0
 
-    # Dernière année d'indice réel
-    real_idx = [j for j in range(len(indice_years)) if not np.isnan(scores[j])]
+    real_idx = [j for j in range(len(data_axis)) if not np.isnan(scores[j])]
     li       = real_idx[-1] if real_idx else 0
 
-    # Données brutes alignées sur l'axe standard 2015-2030 (pour le graphe brut)
-    a, b   = np.polyfit(years, np.array(ind["vals"], float), 1)
-    raw_all = np.array([rby.get(y, a*y+b) for y in YEARS_AXIS])
+    # Données brutes alignées sur l'axe standard (déjà en années de données)
+    a, b     = np.polyfit(years, np.array(ind["vals"], float), 1)
+    raw_all  = np.array([rby.get(y, a*y+b) for y in YEARS_AXIS])
     raw_real = np.where(np.array([y in rby for y in YEARS_AXIS]), raw_all, np.nan)
 
     return {
-        "indice_years": indice_years,        # axe X des indices
-        "scores":       proj_scores,         # indices (réels + extrapolés)
-        "real_scores":  scores,              # NaN sauf indices réels
-        "raw_years":    YEARS_AXIS,          # axe X des données brutes
+        "indice_years": data_axis,           # axe X (années de données)
+        "scores":       proj_scores,
+        "real_scores":  scores,
+        "raw_years":    YEARS_AXIS,
         "real_raw":     raw_real,
         "proj_raw":     raw_all,
         "slope":        slope,
         "last_score":   float(scores[li]) if real_idx else float("nan"),
         "prev_score":   float(scores[li-1]) if li > 0 and not np.isnan(scores[li-1]) else None,
         "proj_2030":    float(proj_scores[-1]),
-        "last_indice_year": int(indice_years[li]) if real_idx else indice_years[0],
+        "last_indice_year": int(data_axis[li]) + 1 if real_idx else data_axis[0] + 1,
         "last_data_year":   last_data,
-        "stale_frozen":     stale_frozen,   # [(annee, valeur_figée, valeur_recalculée)]
+        "stale_frozen":     stale_frozen,
     }
 
 def get_indice(ind, icf_year):
@@ -528,25 +517,25 @@ def freeze_year_all(target_year):
 # ════════════════════════════════════════════════════════════════════════════
 
 def score_fig(s, label):
-    # Axe X = années d'indice (fourni par build_series)
+    # Axe X = années de DONNÉES (convention Excel : point Y = valeur Y normalisée)
     indice_axis = s["indice_years"]
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=indice_axis, y=s["scores"], mode="lines",
         name="Projection linéaire",
         line=dict(color=RED, dash="dash", width=1.5),
-        hovertemplate="Indice %{x}: %{y:.1f}<extra>Projection</extra>",
+        hovertemplate="Données %{x} : %{y:.1f}<extra>Projection</extra>",
     ))
     fig.add_trace(go.Scatter(
         x=indice_axis, y=s["real_scores"], mode="lines+markers",
         name="Indice réel",
         line=dict(color=BLUE, width=2), marker=dict(size=7, color=BLUE),
         connectgaps=False,
-        hovertemplate="Indice %{x}: %{y:.1f}<extra>Indice réel</extra>",
+        hovertemplate="Données %{x} : %{y:.1f}<extra>Indice</extra>",
     ))
     fig.update_layout(
         title=f"Indice normalisé — {label}", height=400,
-        xaxis=dict(tickvals=indice_axis, tickangle=45, title="Année de l'indice"),
+        xaxis=dict(tickvals=indice_axis, tickangle=45, title="Année de la donnée"),
         yaxis=dict(range=[0, 100], title="Indice (0–100)"),
         legend=dict(orientation="h", y=-0.3),
         margin=dict(l=55, r=20, t=50, b=90),
@@ -1109,23 +1098,31 @@ with tabs[0]:
         # N'affecte AUCUN calcul officiel — uniquement le tracé de la courbe.
         last_data_global = max(max(ind["years"]) for ind in data.values())
 
+        # Axe d'affichage = ANNÉES DE DONNÉES : le point x=Y montre la moyenne
+        # des indices des valeurs Y (= ICF Y+1). L'ICF 2015 (donnée 2014
+        # extrapolée) n'est plus affiché.
         real_icf_years, real_icf_vals = [], []
         proj_icf_years, proj_icf_vals = [], []
         for iy, val in zip(icf_years_axis, gs):
+            if iy < BASE_YEAR_0 + 1:
+                continue                      # saute l'ex-"ICF 2015"
+            x_disp = iy - 1                   # année de données affichée
             if iy <= icf_year:
-                real_icf_years.append(iy); real_icf_vals.append(round(float(val),1))
+                real_icf_years.append(x_disp); real_icf_vals.append(round(float(val),1))
             else:
-                proj_icf_years.append(iy); proj_icf_vals.append(round(float(val),1))
+                proj_icf_years.append(x_disp); proj_icf_vals.append(round(float(val),1))
 
         # Régression sur ICF figés (sinon sur ICF réels) pour la tendance
         if len(frozen_icf) >= 2:
-            ref_x, ref_y = list(frozen_icf.keys()), list(frozen_icf.values())
+            # gels indexés par année d'ICF → repositionnés en année de données
+            ref_x = [y - 1 for y in frozen_icf.keys()]
+            ref_y = list(frozen_icf.values())
         else:
             ref_x, ref_y = real_icf_years, real_icf_vals
         if len(ref_x) >= 2:
             fa, fb     = np.polyfit(ref_x, ref_y, 1)
-            proj_start = min(real_icf_years) if real_icf_years else icf_year
-            proj_line_years = list(range(proj_start, 2031))
+            proj_start = min(real_icf_years) if real_icf_years else icf_year - 1
+            proj_line_years = list(range(proj_start, 2030))
             proj_line_vals  = [fa*y+fb for y in proj_line_years]
         else:
             proj_line_years, proj_line_vals = [], []
@@ -1164,7 +1161,7 @@ with tabs[0]:
                              for y in real_icf_years]
             fig_g.add_trace(go.Scatter(
                 x=real_icf_years, y=real_icf_vals,
-                mode="lines+markers+text", name="ICF",
+                mode="lines+markers+text", name="Moyenne des indices",
                 line=dict(color=BLUE, width=2.5),
                 marker=dict(size=8, color=marker_colors),
                 text=[f"{v:.1f}" for v in real_icf_vals],
@@ -1176,7 +1173,7 @@ with tabs[0]:
         sel_color = "#2ECC71" if icf_year in frozen_icf else "#F5A623"
         sel_name  = f"ICF {icf_year} (figé)" if icf_year in frozen_icf else f"ICF {icf_year} (provisoire)"
         fig_g.add_trace(go.Scatter(
-            x=[icf_year], y=[sel_val],
+            x=[icf_year - 1], y=[sel_val],
             mode="markers", name=sel_name,
             marker=dict(size=13, color=sel_color,
                         symbol="circle", line=dict(width=2, color="white")),
@@ -1187,8 +1184,9 @@ with tabs[0]:
         fig_g.update_layout(
             title="Évolution ICF Global",
             height=460,
-            xaxis=dict(tickvals=list(range(2015, 2031)), tickangle=45, title="Année ICF"),
-            yaxis=dict(range=_y_range(_all_main_vals), title="Score ICF (0–100)"),
+            xaxis=dict(tickvals=list(range(2015, 2030)), tickangle=45,
+                       title="Année de la donnée"),
+            yaxis=dict(range=_y_range(_all_main_vals), title="Moyenne des indices (0–100)"),
             legend=dict(orientation="h", y=-0.28),
             margin=dict(l=50, r=20, t=55, b=100),
         )
@@ -1196,16 +1194,18 @@ with tabs[0]:
 
         # ── Graphes séparés : ICF Droits / ICF Devoirs ───────────────────────
         def _cat_fig(title, series, color, n_count):
-            sub_years = [iy for iy in icf_years_axis if iy <= icf_year]
-            n = len(sub_years)
-            vals = [float(v) for v in series[:n]]
+            # Axe = années de données (point Y = moyenne des indices des valeurs Y)
+            pairs = [(iy - 1, float(v)) for iy, v in zip(icf_years_axis, series)
+                     if BASE_YEAR_0 + 1 <= iy <= icf_year]
+            sub_years = [p[0] for p in pairs]
+            vals      = [p[1] for p in pairs]
             fig = go.Figure()
             # Tendance : régression sur la sous-série, projetée jusqu'à 2030
             valid = [(y, v) for y, v in zip(sub_years, vals) if not np.isnan(v)]
             if len(valid) >= 2:
                 vx, vy = zip(*valid)
                 ca, cb = np.polyfit(vx, vy, 1)
-                proj_x = list(range(sub_years[0], 2031))
+                proj_x = list(range(sub_years[0], 2030))
                 fig.add_trace(go.Scatter(
                     x=proj_x, y=[ca*y+cb for y in proj_x],
                     mode="lines", name="Tendance (projection)",
@@ -1225,8 +1225,8 @@ with tabs[0]:
             fig.update_layout(
                 title=f"{title} ({n_count} indicateurs)",
                 height=340,
-                xaxis=dict(tickvals=list(range(2015, 2031)), tickangle=45,
-                           title="Année ICF"),
+                xaxis=dict(tickvals=list(range(2015, 2030)), tickangle=45,
+                           title="Année de la donnée"),
                 yaxis=dict(range=_y_range(_cat_vals), title="Score (0–100)"),
                 legend=dict(orientation="h", y=-0.35),
                 margin=dict(l=45, r=15, t=45, b=85),
@@ -1235,15 +1235,16 @@ with tabs[0]:
 
         col_dr, col_dv = st.columns(2)
         with col_dr:
-            st.plotly_chart(_cat_fig("⚖️ ICF Droits", gs_droits, "#26C6DA", n_droits),
+            st.plotly_chart(_cat_fig("⚖️ Droits — moyenne des indices", gs_droits, "#26C6DA", n_droits),
                             use_container_width=True)
         with col_dv:
-            st.plotly_chart(_cat_fig("📜 ICF Devoirs", gs_devoirs, "#EC407A", n_devoirs),
+            st.plotly_chart(_cat_fig("📜 Devoirs — moyenne des indices", gs_devoirs, "#EC407A", n_devoirs),
                             use_container_width=True)
 
         # ── Tableau des indices par indicateur + ligne ICF ───────────────────
         # Terminologie : "indice" = score d'un indicateur ; "ICF" = moyenne globale
-        st.subheader(f"Indices par indicateur — référence {win_start}–{win_end}")
+        st.subheader(f"Indices par indicateur, par année de donnée — "
+                     f"référence {win_start}–{win_end}")
 
         # Légende
         st.markdown(
@@ -1261,24 +1262,26 @@ with tabs[0]:
             unsafe_allow_html=True
         )
 
-        # Colonnes = années d'indice, de 2015 à icf_year
-        # (2015–2024 affichés à titre indicatif : même référence 2015-2024)
-        icf_cols = list(range(BASE_YEAR_0, icf_year + 1))
+        # Colonnes = ANNÉES DE DONNÉES, de 2015 à icf_year-1
+        # (colonne Y = indices des valeurs Y = composantes de l'ICF Y+1)
+        icf_cols = list(range(BASE_YEAR_0, icf_year))
 
         ind_labels = ([ind["label"] for ind in data.values()]
-                      + ["⚖️ ICF Droits", "📜 ICF Devoirs", "🏆 ICF"])
+                      + ["⚖️ Moyenne Droits", "📜 Moyenne Devoirs",
+                         "🏆 Moyenne des indices"])
 
         cell_vals   = []  # une liste par colonne
         cell_colors = []  # couleur par cellule
 
-        for icf_col_yr in icf_cols:
-            data_yr = icf_col_yr - 1
+        for data_col_yr in icf_cols:
+            data_yr = data_col_yr          # colonne = année de données
+            icf_of_col = data_col_yr + 1   # l'ICF correspondant (pour les gels)
             col_vals, col_colors = [], []
-            col_scores = []   # pour la ligne ICF
+            col_scores = []   # pour la ligne Moyenne
             for key, ind in data.items():
                 frozen = ind.get("frozen_scores", {})
-                if str(icf_col_yr) in frozen:
-                    sc = frozen[str(icf_col_yr)]
+                if str(icf_of_col) in frozen:
+                    sc = frozen[str(icf_of_col)]
                     col_vals.append(f"{sc:.1f}")
                     col_colors.append("#2E7D32")  # vert = figé
                 else:
