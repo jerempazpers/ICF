@@ -25,8 +25,8 @@ ORIGINAL_DATA = {
         "short": "1. Participation",
         "unit": "%", "inv": False, "cat": "droit",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-        "vals": [60.05875, 60, 56.5175, 56.5175, 56.5175, 52.02375, 47.415, 46.9275, 46.88375, 50.29125, 50.3],
-        "frozen_scores": {"2025": 40.4},
+        "vals": [60.1, 60.0, 56.5, 56.5, 56.5, 52.0, 47.4, 46.9, 46.9, 50.3, 50.3],
+        "frozen_scores": {"2025": 40.5},
     },
     "presse": {
         "label": "INDICE 2 - Classement RSF de la liberté de la presse",
@@ -41,7 +41,7 @@ ORIGINAL_DATA = {
         "short": "3. Échec scolaire",
         "unit": "%", "inv": True, "cat": "droit",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
-        "vals": [9.2, 8.8, 8.8, 8.7, 8.2, 8, 7.8, 7.6, 7.6, 7.9, 7.2],
+        "vals": [9.2, 8.8, 8.8, 8.7, 8.2, 8.0, 7.8, 7.6, 7.6, 7.9, 7.2],
         "frozen_scores": {"2025": 60.5},
     },
     "rcds": {
@@ -66,7 +66,7 @@ ORIGINAL_DATA = {
         "unit": "nb crimes et délits", "inv": True, "cat": "devoir",
         "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
         "vals": [3168570, 3190310, 3153413, 3219475, 2794838, 3020318, 3308943, 3382111, 3368566, 3442183],
-        "frozen_scores": {"2025": 30.9},
+        "frozen_scores": {"2025": 31.0},
     },
     "laicite": {
         "label": "INDICE 7 - Nb d'incidents signalés à l'école pour motif religieux",
@@ -74,20 +74,20 @@ ORIGINAL_DATA = {
         "unit": "nb incidents", "inv": True, "cat": "devoir",
         "years": [2020, 2021, 2022, 2023, 2024, 2025],
         "vals": [935, 2226, 2167, 4710, 6554, 4230],
-        "frozen_scores": {"2025": 19.8},
+        "frozen_scores": {"2025": 23.4},
     },
     "salaires": {
         "label": "INDICE 8 - Écart salarial moyen hommes/femmes à temps égal",
         "short": "8. Écart salarial",
         "unit": "%", "inv": True, "cat": "devoir",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
-        "vals": [19.1, 18.4, 17.9, 17.5, 16.6, 15.8, 15.5, 14.8, 14.2, 14],
+        "vals": [19.1, 18.4, 17.9, 17.5, 16.6, 15.8, 15.5, 14.8, 14.2, 14.0],
         "frozen_scores": {"2025": 72.1},
     },
     "violences": {
         "label": "INDICE 9 - Nb de femmes victimes de violences au sein du couple",
         "short": "9. Violences couple",
-        "unit": "nb cas", "inv": True, "cat": "devoir",
+        "unit": "nb condamnations", "inv": True, "cat": "devoir",
         "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
         "vals": [16916, 16829, 17908, 20200, 22764, 33040, 35138, 37176, 38006],
         "frozen_scores": {"2025": 28.2},
@@ -339,21 +339,31 @@ def get_reference_period(icf_year):
 
 def compute_score_for_year(ind, target_year):
     """
-    Calcule l'indice d'un indicateur pour l'année de données target_year.
-    L'indice/ICF correspondant est celui de l'année (target_year + 1).
+    Indice d'un indicateur pour l'année de données target_year
+    (= composante de l'ICF target_year + 1).
 
-    La référence (μ, σ) suit get_reference_period(target_year+1).
-    Les années manquantes de la référence sont extrapolées par régression
-    linéaire — cohérent avec la méthode MATLAB d'origine.
+    RÈGLE STRICTE D'INFORMATION : pour l'indice de l'année N, seules les
+    données brutes d'années <= N existent. Toute donnée postérieure est
+    ignorée — dans la référence (μ, σ) ET dans la régression d'extrapolation.
+    L'indice N ne dépend donc jamais du futur.
+
+    Référence (μ, σ) : get_reference_period(target_year + 1)
+    (fixe 2015-2024 jusqu'à l'ICF 2025, cumulative ensuite, rebasage décennal).
+    Années manquantes de la référence : extrapolées par régression linéaire
+    ajustée sur les seules données <= target_year.
     """
-    years = np.array(ind["years"]); vals = np.array(ind["vals"], float)
-    a, b  = np.polyfit(years, vals, 1)
-    rby   = dict(zip(ind["years"], ind["vals"]))
+    yrs = np.array([y for y in ind["years"] if y <= target_year])
+    vls = np.array([v for y, v in zip(ind["years"], ind["vals"]) if y <= target_year],
+                   dtype=float)
+    if len(yrs) < 2:
+        return 50.0, 0.0, 0.0        # pas assez d'information à cette date
+
+    a, b = np.polyfit(yrs, vls, 1)
+    rby  = dict(zip(yrs.tolist(), vls.tolist()))
 
     icf_year = target_year + 1
     ref_start, ref_end = get_reference_period(icf_year)
-    ref_years = list(range(ref_start, ref_end + 1))
-    ref_vals  = np.array([rby.get(y, a*y+b) for y in ref_years])
+    ref_vals = np.array([rby.get(y, a*y+b) for y in range(ref_start, ref_end + 1)])
 
     mu    = ref_vals.mean()
     sigma = ref_vals.std(ddof=1)
