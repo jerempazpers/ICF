@@ -342,27 +342,35 @@ def compute_score_for_year(ind, target_year):
     Indice d'un indicateur pour l'année de données target_year
     (= composante de l'ICF target_year + 1).
 
-    RÈGLE STRICTE D'INFORMATION : pour l'indice de l'année N, seules les
-    données brutes d'années <= N existent. Toute donnée postérieure est
-    ignorée — dans la référence (μ, σ) ET dans la régression d'extrapolation.
-    L'indice N ne dépend donc jamais du futur.
+    RÈGLE STRICTE D'INFORMATION : la borne de connaissance est la FIN de la
+    période de référence. Toute donnée postérieure est ignorée — dans la
+    référence (μ, σ) ET dans la régression d'extrapolation. Ainsi l'indice
+    2024 (réf 2015-2024) ignore la donnée 2025 ; l'indice 2025 (réf 2015-2025)
+    l'utilise. Un indice ne dépend jamais d'une donnée publiée après sa
+    période de référence.
 
     Référence (μ, σ) : get_reference_period(target_year + 1)
     (fixe 2015-2024 jusqu'à l'ICF 2025, cumulative ensuite, rebasage décennal).
     Années manquantes de la référence : extrapolées par régression linéaire
     ajustée sur les seules données <= target_year.
     """
-    yrs = np.array([y for y in ind["years"] if y <= target_year])
-    vls = np.array([v for y, v in zip(ind["years"], ind["vals"]) if y <= target_year],
+    icf_year = target_year + 1
+    ref_start, ref_end = get_reference_period(icf_year)
+
+    # BORNE DE CONNAISSANCE = fin de la période de référence.
+    # Tous les indices d'un même bloc de référence (ex. 2015→2024, réf 2015-2024)
+    # sont calculés avec le même état d'information (données ≤ 2024), comme
+    # dans MATLAB/Excel. Aucune donnée postérieure à la référence n'est utilisée
+    # (ni dans μ/σ, ni dans la régression) : l'indice 2024 ignore 2025, etc.
+    cutoff = max(target_year, ref_end)
+    yrs = np.array([y for y in ind["years"] if y <= cutoff])
+    vls = np.array([v for y, v in zip(ind["years"], ind["vals"]) if y <= cutoff],
                    dtype=float)
     if len(yrs) < 2:
-        return 50.0, 0.0, 0.0        # pas assez d'information à cette date
+        return 50.0, 0.0, 0.0        # pas assez d'information
 
     a, b = np.polyfit(yrs, vls, 1)
     rby  = dict(zip(yrs.tolist(), vls.tolist()))
-
-    icf_year = target_year + 1
-    ref_start, ref_end = get_reference_period(icf_year)
     ref_vals = np.array([rby.get(y, a*y+b) for y in range(ref_start, ref_end + 1)])
 
     mu    = ref_vals.mean()
