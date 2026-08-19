@@ -554,7 +554,7 @@ def score_fig(s, label):
     fig.update_layout(
         title=f"Indice normalisé — {label}", height=400,
         xaxis=dict(tickvals=indice_axis, tickangle=45, title="Année de la donnée"),
-        yaxis=dict(range=[0, 100], title="Indice (0–100)"),
+        yaxis=dict(range=[20, 80], title="Indice (0–100)", dtick=10),
         legend=dict(orientation="h", y=-0.3),
         margin=dict(l=55, r=20, t=50, b=90),
     )
