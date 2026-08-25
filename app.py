@@ -268,9 +268,11 @@ def load_saved():
     return copy.deepcopy(ORIGINAL_DATA)
 
 def write_save(data):
+    payload = dict(data)
+    payload["_charts"] = st.session_state.get("chart_meta", {})
     with open(SAVE_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    ok, msg = gh_save(data)
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    ok, msg = gh_save(payload)
     st.session_state.gh_last_save = (ok, msg, time.strftime("%H:%M:%S"))
 
 # ── Catégories Droits / Devoirs (cf. Excel EDLR colonne "Droit/Devoir") ─────
@@ -288,6 +290,8 @@ def ensure_categories(d):
     """Rétrocompatibilité des données sauvegardées : injecte la catégorie,
     aligne les libellés officiels (label/short) et remet l'ordre officiel
     INDICE 1 → 10. Les indicateurs personnalisés inconnus passent à la fin."""
+    for key in [k for k in d if k.startswith("_")]:
+        d.pop(key)
     for key, ind in d.items():
         if "cat" not in ind:
             ind["cat"] = CATEGORY_MAP.get(key, "droit")
@@ -302,9 +306,17 @@ def ensure_categories(d):
     return d
 
 if "saved_data" not in st.session_state:
-    st.session_state.saved_data = ensure_categories(load_saved())
+    _raw = load_saved()
+    st.session_state.chart_meta = _raw.pop("_charts", {}) if isinstance(_raw, dict) else {}
+    st.session_state.saved_data = ensure_categories(_raw)
 if "data" not in st.session_state:
     st.session_state.data = ensure_categories(copy.deepcopy(st.session_state.saved_data))
+if "chart_meta" not in st.session_state:
+    st.session_state.chart_meta = {}
+
+def chart_meta(k):
+    """Personnalisation d'une figure : {'title','xtitle','ytitle','leg1','leg2'}."""
+    return st.session_state.chart_meta.get(k, {})
 
 # ════════════════════════════════════════════════════════════════════════════
 # CALCULS
@@ -534,51 +546,71 @@ def freeze_year_all(target_year):
 # GRAPHIQUES
 # ════════════════════════════════════════════════════════════════════════════
 
-def score_fig(s, label):
+
+def chart_meta_editor(fig_key, title_default, x_default, y_default,
+                      leg1_default, leg2_default, widget_prefix):
+    """5 champs libres pour personnaliser une figure. Vide = valeur par défaut."""
+    m = st.session_state.chart_meta.get(fig_key, {})
+    c1, c2 = st.columns(2)
+    t  = c1.text_input("Titre",   value=m.get("title",""),  placeholder=title_default, key=f"{widget_prefix}_t")
+    xt = c2.text_input("Axe X",   value=m.get("xtitle",""), placeholder=x_default,     key=f"{widget_prefix}_x")
+    yt = c1.text_input("Axe Y",   value=m.get("ytitle",""), placeholder=y_default,     key=f"{widget_prefix}_y")
+    l1 = c2.text_input("Légende — courbe",     value=m.get("leg1",""), placeholder=leg1_default, key=f"{widget_prefix}_l1")
+    l2 = c1.text_input("Légende — projection", value=m.get("leg2",""), placeholder=leg2_default, key=f"{widget_prefix}_l2")
+    return {k: v.strip() for k, v in
+            {"title": t, "xtitle": xt, "ytitle": yt, "leg1": l1, "leg2": l2}.items()
+            if v.strip()}
+
+def score_fig(s, label, meta=None):
+    meta = meta or {}
     # Axe X = années de DONNÉES (convention Excel : point Y = valeur Y normalisée)
     indice_axis = s["indice_years"]
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=indice_axis, y=s["scores"], mode="lines",
-        name="Projection linéaire",
+        name=meta.get("leg2") or "Projection linéaire",
         line=dict(color=RED, dash="dash", width=1.5),
         hovertemplate="Données %{x} : %{y:.1f}<extra>Projection</extra>",
     ))
     fig.add_trace(go.Scatter(
         x=indice_axis, y=s["real_scores"], mode="lines+markers",
-        name="Indice réel",
+        name=meta.get("leg1") or "Indice réel",
         line=dict(color=BLUE, width=2), marker=dict(size=7, color=BLUE),
         connectgaps=False,
         hovertemplate="Données %{x} : %{y:.1f}<extra>Indice</extra>",
     ))
     fig.update_layout(
-        title=f"Indice normalisé — {label}", height=400,
-        xaxis=dict(tickvals=indice_axis, tickangle=45, title="Année de la donnée"),
-        yaxis=dict(range=[20, 80], title="Indice (0–100)", dtick=10),
+        title=meta.get("title") or f"Indice normalisé — {label}", height=400,
+        xaxis=dict(tickvals=indice_axis, tickangle=45,
+                   title=meta.get("xtitle") or "Année de la donnée"),
+        yaxis=dict(range=[20, 80], title=meta.get("ytitle") or "Indice (0–100)",
+                   dtick=10),
         legend=dict(orientation="h", y=-0.3),
         margin=dict(l=55, r=20, t=50, b=90),
     )
     return fig
 
-def raw_fig(s, label, unit):
+def raw_fig(s, label, unit, meta=None):
+    meta = meta or {}
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=s["raw_years"], y=s["proj_raw"], mode="lines",
-        name="Projection linéaire (2015–2030)",
+        name=meta.get("leg2") or "Projection linéaire (2015–2030)",
         line=dict(color=RED, dash="dash", width=1.5),
         hovertemplate="%{x}: %{y:,.2f}<extra>Projection</extra>",
     ))
     fig.add_trace(go.Scatter(
         x=s["raw_years"], y=s["real_raw"], mode="lines+markers",
-        name="Données réelles",
+        name=meta.get("leg1") or "Données réelles",
         line=dict(color=BLUE, width=2), marker=dict(size=7, color=BLUE),
         connectgaps=False,
         hovertemplate=f"%{{x}}: %{{y:,.2f}} {unit}<extra>Réel</extra>",
     ))
     fig.update_layout(
-        title=f"Données brutes — {label}", height=400,
-        xaxis=dict(tickvals=s["raw_years"], tickangle=45, title="Année"),
-        yaxis=dict(title=unit),
+        title=meta.get("title") or f"Données brutes — {label}", height=400,
+        xaxis=dict(tickvals=s["raw_years"], tickangle=45,
+                   title=meta.get("xtitle") or "Année"),
+        yaxis=dict(title=meta.get("ytitle") or unit),
         legend=dict(orientation="h", y=-0.3),
         margin=dict(l=60, r=20, t=50, b=90),
     )
@@ -1168,7 +1200,7 @@ with tabs[0]:
         if proj_line_years:
             fig_g.add_trace(go.Scatter(
                 x=proj_line_years, y=proj_line_vals,
-                mode="lines", name="Tendance (projection)",
+                mode="lines", name=chart_meta("global::main").get("leg2") or "Tendance (projection)",
                 line=dict(color=RED, dash="dash", width=1.5),
             ))
 
@@ -1179,7 +1211,8 @@ with tabs[0]:
                              for y in real_icf_years]
             fig_g.add_trace(go.Scatter(
                 x=real_icf_years, y=real_icf_vals,
-                mode="lines+markers+text", name="Moyenne des indices",
+                mode="lines+markers+text",
+                name=chart_meta("global::main").get("leg1") or "Moyenne des indices",
                 line=dict(color=BLUE, width=2.5),
                 marker=dict(size=8, color=marker_colors),
                 text=[f"{v:.1f}" for v in real_icf_vals],
@@ -1199,12 +1232,14 @@ with tabs[0]:
 
         _all_main_vals = (list(real_icf_vals) + list(proj_line_vals)
                           + ([sel_val] if 'sel_val' in locals() else []))
+        _mg = chart_meta("global::main")
         fig_g.update_layout(
-            title="Évolution ICF Global",
+            title=_mg.get("title") or "Évolution ICF Global",
             height=460,
             xaxis=dict(tickvals=list(range(2015, 2030)), tickangle=45,
-                       title="Année de la donnée"),
-            yaxis=dict(range=_y_range(_all_main_vals), title="Moyenne des indices (0–100)"),
+                       title=_mg.get("xtitle") or "Année de la donnée"),
+            yaxis=dict(range=_y_range(_all_main_vals),
+                       title=_mg.get("ytitle") or "Moyenne des indices (0–100)"),
             legend=dict(orientation="h", y=-0.28),
             margin=dict(l=50, r=20, t=55, b=100),
         )
@@ -1252,12 +1287,43 @@ with tabs[0]:
             return fig
 
         col_dr, col_dv = st.columns(2)
+        _mdr, _mdv = chart_meta("global::droits"), chart_meta("global::devoirs")
         with col_dr:
-            st.plotly_chart(_cat_fig("⚖️ Droits — moyenne des indices", gs_droits, "#26C6DA", n_droits),
+            st.plotly_chart(_cat_fig(_mdr.get("title") or "⚖️ Droits — moyenne des indices",
+                                     gs_droits, "#26C6DA", n_droits),
                             use_container_width=True)
         with col_dv:
-            st.plotly_chart(_cat_fig("📜 Devoirs — moyenne des indices", gs_devoirs, "#EC407A", n_devoirs),
+            st.plotly_chart(_cat_fig(_mdv.get("title") or "📜 Devoirs — moyenne des indices",
+                                     gs_devoirs, "#EC407A", n_devoirs),
                             use_container_width=True)
+
+        # ── Personnalisation des graphiques globaux (admin) ──────────────────
+        if IS_ADMIN:
+            with st.expander("🎨 Personnaliser les graphiques (titres, axes, légendes)"):
+                st.markdown("**Graphique principal**")
+                m_main = chart_meta_editor("global::main",
+                    "Évolution ICF Global", "Année de la donnée",
+                    "Moyenne des indices (0–100)", "Moyenne des indices",
+                    "Tendance (projection)", "cm_gmain")
+                st.markdown("---")
+                cg1, cg2 = st.columns(2)
+                with cg1:
+                    t_dr = st.text_input("Titre — graphique Droits", 
+                                         value=_mdr.get("title",""),
+                                         placeholder="⚖️ Droits — moyenne des indices",
+                                         key="cm_gdr_t")
+                with cg2:
+                    t_dv = st.text_input("Titre — graphique Devoirs",
+                                         value=_mdv.get("title",""),
+                                         placeholder="📜 Devoirs — moyenne des indices",
+                                         key="cm_gdv_t")
+                if st.button("💾 Enregistrer les libellés", key="cm_save_global"):
+                    st.session_state.chart_meta["global::main"]    = m_main
+                    st.session_state.chart_meta["global::droits"]  = ({"title": t_dr.strip()} if t_dr.strip() else {})
+                    st.session_state.chart_meta["global::devoirs"] = ({"title": t_dv.strip()} if t_dv.strip() else {})
+                    write_save(st.session_state.saved_data)
+                    st.success("Libellés enregistrés.")
+                    st.rerun()
 
         # ── Tableau des indices par indicateur + ligne ICF ───────────────────
         # Terminologie : "indice" = score d'un indicateur ; "ICF" = moyenne globale
@@ -1408,9 +1474,12 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
 
         col_l, col_r = st.columns(2)
         with col_l:
-            st.plotly_chart(score_fig(s, ind["label"]), use_container_width=True)
+            st.plotly_chart(score_fig(s, ind["label"], chart_meta(f"ind::{key}::score")),
+                            use_container_width=True)
         with col_r:
-            st.plotly_chart(raw_fig(s, ind["label"], ind["unit"]), use_container_width=True)
+            st.plotly_chart(raw_fig(s, ind["label"], ind["unit"],
+                                    chart_meta(f"ind::{key}::raw")),
+                            use_container_width=True)
 
         # ── Section édition (admin uniquement) ───────────────────────────────
         if IS_ADMIN:
@@ -1422,6 +1491,28 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
                 saved_ref["years"] != ind["years"] or saved_ref["vals"] != ind["vals"])
             if has_unsaved:
                 st.warning("⚠️ Modifications en cours — pas encore sauvegardées définitivement.")
+
+            if IS_ADMIN:
+                with st.expander("🎨 Personnaliser les graphiques (titres, axes, légendes)"):
+                    st.markdown("**Graphique de l'indice**")
+                    m_sc = chart_meta_editor(
+                        f"ind::{key}::score",
+                        f"Indice normalisé — {ind['label']}", "Année de la donnée",
+                        "Indice (0–100)", "Indice réel", "Projection linéaire",
+                        f"cm_{key}_sc")
+                    st.markdown("---")
+                    st.markdown("**Graphique des données brutes**")
+                    m_raw = chart_meta_editor(
+                        f"ind::{key}::raw",
+                        f"Données brutes — {ind['label']}", "Année",
+                        ind["unit"], "Données réelles", "Projection linéaire (2015–2030)",
+                        f"cm_{key}_raw")
+                    if st.button("💾 Enregistrer les libellés", key=f"cm_save_{key}"):
+                        st.session_state.chart_meta[f"ind::{key}::score"] = m_sc
+                        st.session_state.chart_meta[f"ind::{key}::raw"]   = m_raw
+                        write_save(st.session_state.saved_data)
+                        st.success("Libellés enregistrés.")
+                        st.rerun()
 
             st.caption("Vous pouvez modifier les valeurs existantes. Pour ajouter "
                        "une nouvelle année, utilisez le bouton dédié dans l'onglet "
