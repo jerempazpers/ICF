@@ -356,6 +356,20 @@
       "ytitle": "Score",
       "leg1": "ICF (Devoirs) annuel",
       "leg2": "Tendance (projection)"
+    },
+    "ind::participation::score": {
+      "title": "Indicateur normalisé (Indice)",
+      "xtitle": "Années",
+      "ytitle": "Score",
+      "leg1": "Indice réel",
+      "leg2": "Projection linéaire"
+    },
+    "ind::participation::raw": {
+      "title": "Indicateur en données brutes",
+      "xtitle": "Année",
+      "ytitle": "Taux de participation moyen (%)",
+      "leg1": "Données brutes",
+      "leg2": "Projection linéaire"
     }
   }
 }
