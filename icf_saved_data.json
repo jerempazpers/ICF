@@ -337,14 +337,14 @@
   },
   "_charts": {
     "global::main": {
-      "title": "Évolution ICF Global - (Personne ne l'appelle ICF Global)",
+      "title": "Évolution ICF Global - TEST",
       "xtitle": "Année de la donnée",
       "ytitle": "Moyenne des indices (0–100)",
       "leg1": "Moyenne des indices",
       "leg2": "Tendance (projection)"
     },
     "global::droits": {
-      "title": "⚖️ Droits — moyenne des indices",
+      "title": "⚖️ Droits — moyenne des indices test",
       "xtitle": "Année de la donnée",
       "ytitle": "Score (0–100)",
       "leg1": "Moyenne des indices",
