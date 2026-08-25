@@ -567,16 +567,20 @@ def chart_meta_editor(fig_key, title_default, x_default, y_default,
 def score_fig(s, label, meta=None):
     meta = meta or {}
     # Axe X = années de DONNÉES (convention Excel : point Y = valeur Y normalisée)
-    indice_axis = s["indice_years"]
+    # Affichage borné à 2026 : les années postérieures ne sont pas montrées.
+    _mask = [y <= 2026 for y in s["indice_years"]]
+    indice_axis = [y for y, m in zip(s["indice_years"], _mask) if m]
+    _scores      = [v for v, m in zip(s["scores"], _mask) if m]
+    _real_scores = [v for v, m in zip(s["real_scores"], _mask) if m]
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=indice_axis, y=s["scores"], mode="lines",
+        x=indice_axis, y=_scores, mode="lines",
         name=meta.get("leg2") or "Projection linéaire",
         line=dict(color=RED, dash="dash", width=1.5),
         hovertemplate="Données %{x} : %{y:.1f}<extra>Projection</extra>",
     ))
     fig.add_trace(go.Scatter(
-        x=indice_axis, y=s["real_scores"], mode="lines+markers",
+        x=indice_axis, y=_real_scores, mode="lines+markers",
         name=meta.get("leg1") or "Indice réel",
         line=dict(color=BLUE, width=2), marker=dict(size=7, color=BLUE),
         connectgaps=False,
@@ -595,15 +599,19 @@ def score_fig(s, label, meta=None):
 
 def raw_fig(s, label, unit, meta=None):
     meta = meta or {}
+    _mask = [y <= 2026 for y in s["raw_years"]]
+    _raw_years = [y for y, m in zip(s["raw_years"], _mask) if m]
+    _proj_raw  = [v for v, m in zip(s["proj_raw"], _mask) if m]
+    _real_raw  = [v for v, m in zip(s["real_raw"], _mask) if m]
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=s["raw_years"], y=s["proj_raw"], mode="lines",
-        name=meta.get("leg2") or "Projection linéaire (2015–2030)",
+        x=_raw_years, y=_proj_raw, mode="lines",
+        name=meta.get("leg2") or "Projection linéaire (2015–2026)",
         line=dict(color=RED, dash="dash", width=1.5),
         hovertemplate="%{x}: %{y:,.2f}<extra>Projection</extra>",
     ))
     fig.add_trace(go.Scatter(
-        x=s["raw_years"], y=s["real_raw"], mode="lines+markers",
+        x=_raw_years, y=_real_raw, mode="lines+markers",
         name=meta.get("leg1") or "Données réelles",
         line=dict(color=BLUE, width=2), marker=dict(size=7, color=BLUE),
         connectgaps=False,
@@ -611,7 +619,7 @@ def raw_fig(s, label, unit, meta=None):
     ))
     fig.update_layout(
         title=meta.get("title") or f"Données brutes — {label}", height=400,
-        xaxis=dict(tickvals=s["raw_years"], tickangle=45,
+        xaxis=dict(tickvals=_raw_years, tickangle=45,
                    title=meta.get("xtitle") or "Année"),
         yaxis=dict(title=meta.get("ytitle") or unit),
         legend=dict(orientation="h", y=-0.3),
@@ -1175,27 +1183,10 @@ with tabs[0]:
         if len(ref_x) >= 2:
             fa, fb     = np.polyfit(ref_x, ref_y, 1)
             proj_start = min(real_icf_years) if real_icf_years else icf_year - 1
-            proj_line_years = list(range(proj_start, 2030))
+            proj_line_years = list(range(proj_start, 2027))   # affichage borné à 2026
             proj_line_vals  = [fa*y+fb for y in proj_line_years]
         else:
             proj_line_years, proj_line_vals = [], []
-
-        # ── Échelle automatique (zoom sur les variations) ────────────────────
-        auto_zoom = st.toggle(
-            "🔍 Échelle automatique",
-            value=True, key="auto_zoom_global",
-            help="Ajuste l'axe vertical aux valeurs pour mieux voir les variations "
-                 "(désactiver pour l'échelle complète 0–100)."
-        )
-
-        def _y_range(all_vals):
-            """Range Y : zoomé sur les valeurs (avec marge) ou 0-100."""
-            vals = [float(v) for v in all_vals if v is not None and not np.isnan(v)]
-            if not auto_zoom or not vals:
-                return [0, 100]
-            lo, hi = min(vals), max(vals)
-            pad = max(2.0, (hi - lo) * 0.15)
-            return [max(0, lo - pad), min(100, hi + pad)]
 
         fig_g = go.Figure()
 
@@ -1224,17 +1215,14 @@ with tabs[0]:
 
         # (le marqueur "ICF N (provisoire/figé)" a été retiré : la courbe
         #  s'arrête naturellement sur le dernier point calculé)
-        sel_val = frozen_icf.get(icf_year, current_icf_val)   # conservé pour le range
-
-        _all_main_vals = (list(real_icf_vals) + list(proj_line_vals)
-                          + ([sel_val] if 'sel_val' in locals() else []))
         _mg = chart_meta("global::main")
         fig_g.update_layout(
             title=_mg.get("title") or "Évolution ICF Global",
             height=460,
-            xaxis=dict(tickvals=list(range(2015, 2030)), tickangle=45,
+            xaxis=dict(tickvals=list(range(2015, 2027)), range=[2014.5, 2026.5],
+                       tickangle=45,
                        title=_mg.get("xtitle") or "Année de la donnée"),
-            yaxis=dict(range=_y_range(_all_main_vals),
+            yaxis=dict(range=[20, 80], dtick=10,
                        title=_mg.get("ytitle") or "Moyenne des indices (0–100)"),
             legend=dict(orientation="h", y=-0.28),
             margin=dict(l=50, r=20, t=55, b=100),
@@ -1255,7 +1243,7 @@ with tabs[0]:
             if len(valid) >= 2:
                 vx, vy = zip(*valid)
                 ca, cb = np.polyfit(vx, vy, 1)
-                proj_x = list(range(sub_years[0], 2030))
+                proj_x = list(range(sub_years[0], 2027))
                 fig.add_trace(go.Scatter(
                     x=proj_x, y=[ca*y+cb for y in proj_x],
                     mode="lines", name=meta.get("leg2") or "Tendance (projection)",
@@ -1270,15 +1258,13 @@ with tabs[0]:
                 text=[f"{v:.1f}" for v in vals],
                 textposition="top center", textfont=dict(size=9, color=color),
             ))
-            _cat_vals = list(vals)
-            if len(valid) >= 2:
-                _cat_vals += [ca*y+cb for y in proj_x]
             fig.update_layout(
                 title=(meta.get("title") or title) + f" ({n_count} indicateurs)",
                 height=340,
-                xaxis=dict(tickvals=list(range(2015, 2030)), tickangle=45,
+                xaxis=dict(tickvals=list(range(2015, 2027)), range=[2014.5, 2026.5],
+                           tickangle=45,
                            title=meta.get("xtitle") or "Année de la donnée"),
-                yaxis=dict(range=_y_range(_cat_vals),
+                yaxis=dict(range=[20, 80], dtick=10,
                            title=meta.get("ytitle") or "Score (0–100)"),
                 legend=dict(orientation="h", y=-0.35),
                 margin=dict(l=45, r=15, t=45, b=85),
@@ -1504,7 +1490,7 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
                     m_raw = chart_meta_editor(
                         f"ind::{key}::raw",
                         f"Données brutes — {ind['label']}", "Année",
-                        ind["unit"], "Données réelles", "Projection linéaire (2015–2030)",
+                        ind["unit"], "Données réelles", "Projection linéaire (2015–2026)",
                         f"cm_{key}_raw")
                     if st.button("💾 Enregistrer les libellés", key=f"cm_save_{key}"):
                         st.session_state.chart_meta[f"ind::{key}::score"] = m_sc
