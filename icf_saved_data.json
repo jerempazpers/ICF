@@ -337,10 +337,10 @@
   },
   "_charts": {
     "global::main": {
-      "title": "Évolution ICF Global - TEST",
-      "xtitle": "Année de la donnée",
-      "ytitle": "Moyenne des indices (0–100)",
-      "leg1": "Moyenne des indices",
+      "title": "Évolution ICF",
+      "xtitle": "Années",
+      "ytitle": "Score",
+      "leg1": "Indice annuel",
       "leg2": "Tendance (projection)"
     },
     "global::droits": {
