@@ -340,21 +340,21 @@
       "title": "Évolution ICF",
       "xtitle": "Années",
       "ytitle": "Score",
-      "leg1": "Indice annuel",
+      "leg1": "ICF annuel",
       "leg2": "Tendance (projection)"
     },
     "global::droits": {
-      "title": "⚖️ Droits — moyenne des indices test",
-      "xtitle": "Année de la donnée",
-      "ytitle": "Score (0–100)",
-      "leg1": "Moyenne des indices",
+      "title": "Evolution ICF des Droits",
+      "xtitle": "Années",
+      "ytitle": "Score",
+      "leg1": "ICF (Droits) annuel",
       "leg2": "Tendance (projection)"
     },
     "global::devoirs": {
-      "title": "📜 Devoirs — moyenne des indices",
-      "xtitle": "Année de la donnée",
-      "ytitle": "Score (0–100)",
-      "leg1": "Moyenne des indices",
+      "title": "Evolution ICF des Devoirs",
+      "xtitle": "Années",
+      "ytitle": "Score",
+      "leg1": "ICF (Devoirs) annuel",
       "leg2": "Tendance (projection)"
     }
   }
