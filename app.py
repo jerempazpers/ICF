@@ -551,12 +551,15 @@ def chart_meta_editor(fig_key, title_default, x_default, y_default,
                       leg1_default, leg2_default, widget_prefix):
     """5 champs libres pour personnaliser une figure. Vide = valeur par défaut."""
     m = st.session_state.chart_meta.get(fig_key, {})
+    # Champs pré-remplis avec les libellés ACTUELLEMENT affichés
+    # (personnalisation si définie, sinon libellé par défaut).
+    # Vider complètement un champ = revenir au libellé par défaut.
     c1, c2 = st.columns(2)
-    t  = c1.text_input("Titre",   value=m.get("title",""),  placeholder=title_default, key=f"{widget_prefix}_t")
-    xt = c2.text_input("Axe X",   value=m.get("xtitle",""), placeholder=x_default,     key=f"{widget_prefix}_x")
-    yt = c1.text_input("Axe Y",   value=m.get("ytitle",""), placeholder=y_default,     key=f"{widget_prefix}_y")
-    l1 = c2.text_input("Légende — courbe",     value=m.get("leg1",""), placeholder=leg1_default, key=f"{widget_prefix}_l1")
-    l2 = c1.text_input("Légende — projection", value=m.get("leg2",""), placeholder=leg2_default, key=f"{widget_prefix}_l2")
+    t  = c1.text_input("Titre",   value=m.get("title")  or title_default, key=f"{widget_prefix}_t")
+    xt = c2.text_input("Axe X",   value=m.get("xtitle") or x_default,     key=f"{widget_prefix}_x")
+    yt = c1.text_input("Axe Y",   value=m.get("ytitle") or y_default,     key=f"{widget_prefix}_y")
+    l1 = c2.text_input("Légende — courbe",     value=m.get("leg1") or leg1_default, key=f"{widget_prefix}_l1")
+    l2 = c1.text_input("Légende — projection", value=m.get("leg2") or leg2_default, key=f"{widget_prefix}_l2")
     return {k: v.strip() for k, v in
             {"title": t, "xtitle": xt, "ytitle": yt, "leg1": l1, "leg2": l2}.items()
             if v.strip()}
@@ -1219,16 +1222,9 @@ with tabs[0]:
                 textposition="top center", textfont=dict(size=10),
             ))
 
-        # ICF sélectionné mis en évidence (orange si non figé, vert si figé)
-        sel_val = frozen_icf.get(icf_year, current_icf_val)
-        sel_color = "#2ECC71" if icf_year in frozen_icf else "#F5A623"
-        sel_name  = f"ICF {icf_year} (figé)" if icf_year in frozen_icf else f"ICF {icf_year} (provisoire)"
-        fig_g.add_trace(go.Scatter(
-            x=[icf_year - 1], y=[sel_val],
-            mode="markers", name=sel_name,
-            marker=dict(size=13, color=sel_color,
-                        symbol="circle", line=dict(width=2, color="white")),
-        ))
+        # (le marqueur "ICF N (provisoire/figé)" a été retiré : la courbe
+        #  s'arrête naturellement sur le dernier point calculé)
+        sel_val = frozen_icf.get(icf_year, current_icf_val)   # conservé pour le range
 
         _all_main_vals = (list(real_icf_vals) + list(proj_line_vals)
                           + ([sel_val] if 'sel_val' in locals() else []))
@@ -1246,7 +1242,8 @@ with tabs[0]:
         st.plotly_chart(fig_g, use_container_width=True)
 
         # ── Graphes séparés : ICF Droits / ICF Devoirs ───────────────────────
-        def _cat_fig(title, series, color, n_count):
+        def _cat_fig(title, series, color, n_count, meta=None):
+            meta = meta or {}
             # Axe = années de données (point Y = moyenne des indices des valeurs Y)
             pairs = [(iy - 1, float(v)) for iy, v in zip(icf_years_axis, series)
                      if BASE_YEAR_0 + 1 <= iy <= icf_year]
@@ -1261,12 +1258,13 @@ with tabs[0]:
                 proj_x = list(range(sub_years[0], 2030))
                 fig.add_trace(go.Scatter(
                     x=proj_x, y=[ca*y+cb for y in proj_x],
-                    mode="lines", name="Tendance (projection)",
+                    mode="lines", name=meta.get("leg2") or "Tendance (projection)",
                     line=dict(color=RED, dash="dash", width=1.5),
                 ))
             fig.add_trace(go.Scatter(
                 x=sub_years, y=vals,
-                mode="lines+markers+text", name=title,
+                mode="lines+markers+text",
+                name=meta.get("leg1") or "Moyenne des indices",
                 line=dict(color=color, width=2.2),
                 marker=dict(size=7, color=color),
                 text=[f"{v:.1f}" for v in vals],
@@ -1276,11 +1274,12 @@ with tabs[0]:
             if len(valid) >= 2:
                 _cat_vals += [ca*y+cb for y in proj_x]
             fig.update_layout(
-                title=f"{title} ({n_count} indicateurs)",
+                title=(meta.get("title") or title) + f" ({n_count} indicateurs)",
                 height=340,
                 xaxis=dict(tickvals=list(range(2015, 2030)), tickangle=45,
-                           title="Année de la donnée"),
-                yaxis=dict(range=_y_range(_cat_vals), title="Score (0–100)"),
+                           title=meta.get("xtitle") or "Année de la donnée"),
+                yaxis=dict(range=_y_range(_cat_vals),
+                           title=meta.get("ytitle") or "Score (0–100)"),
                 legend=dict(orientation="h", y=-0.35),
                 margin=dict(l=45, r=15, t=45, b=85),
             )
@@ -1289,12 +1288,12 @@ with tabs[0]:
         col_dr, col_dv = st.columns(2)
         _mdr, _mdv = chart_meta("global::droits"), chart_meta("global::devoirs")
         with col_dr:
-            st.plotly_chart(_cat_fig(_mdr.get("title") or "⚖️ Droits — moyenne des indices",
-                                     gs_droits, "#26C6DA", n_droits),
+            st.plotly_chart(_cat_fig("⚖️ Droits — moyenne des indices",
+                                     gs_droits, "#26C6DA", n_droits, _mdr),
                             use_container_width=True)
         with col_dv:
-            st.plotly_chart(_cat_fig(_mdv.get("title") or "📜 Devoirs — moyenne des indices",
-                                     gs_devoirs, "#EC407A", n_devoirs),
+            st.plotly_chart(_cat_fig("📜 Devoirs — moyenne des indices",
+                                     gs_devoirs, "#EC407A", n_devoirs, _mdv),
                             use_container_width=True)
 
         # ── Personnalisation des graphiques globaux (admin) ──────────────────
@@ -1306,21 +1305,21 @@ with tabs[0]:
                     "Moyenne des indices (0–100)", "Moyenne des indices",
                     "Tendance (projection)", "cm_gmain")
                 st.markdown("---")
-                cg1, cg2 = st.columns(2)
-                with cg1:
-                    t_dr = st.text_input("Titre — graphique Droits", 
-                                         value=_mdr.get("title",""),
-                                         placeholder="⚖️ Droits — moyenne des indices",
-                                         key="cm_gdr_t")
-                with cg2:
-                    t_dv = st.text_input("Titre — graphique Devoirs",
-                                         value=_mdv.get("title",""),
-                                         placeholder="📜 Devoirs — moyenne des indices",
-                                         key="cm_gdv_t")
+                st.markdown("**Graphique Droits**")
+                m_dr = chart_meta_editor("global::droits",
+                    "⚖️ Droits — moyenne des indices", "Année de la donnée",
+                    "Score (0–100)", "Moyenne des indices",
+                    "Tendance (projection)", "cm_gdr")
+                st.markdown("---")
+                st.markdown("**Graphique Devoirs**")
+                m_dv = chart_meta_editor("global::devoirs",
+                    "📜 Devoirs — moyenne des indices", "Année de la donnée",
+                    "Score (0–100)", "Moyenne des indices",
+                    "Tendance (projection)", "cm_gdv")
                 if st.button("💾 Enregistrer les libellés", key="cm_save_global"):
                     st.session_state.chart_meta["global::main"]    = m_main
-                    st.session_state.chart_meta["global::droits"]  = ({"title": t_dr.strip()} if t_dr.strip() else {})
-                    st.session_state.chart_meta["global::devoirs"] = ({"title": t_dv.strip()} if t_dv.strip() else {})
+                    st.session_state.chart_meta["global::droits"]  = m_dr
+                    st.session_state.chart_meta["global::devoirs"] = m_dv
                     write_save(st.session_state.saved_data)
                     st.success("Libellés enregistrés.")
                     st.rerun()
