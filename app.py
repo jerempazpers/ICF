@@ -314,17 +314,6 @@ if "data" not in st.session_state:
 if "chart_meta" not in st.session_state:
     st.session_state.chart_meta = {}
 
-def svg_config(filename):
-    """Config Plotly : le bouton 📷 télécharge en SVG (vectoriel, textes éditables)."""
-    return {
-        "toImageButtonOptions": {
-            "format": "svg",
-            "filename": filename,
-            "scale": 1,
-        },
-        "displaylogo": False,
-    }
-
 def chart_meta(k):
     """Personnalisation d'une figure : {'title','xtitle','ytitle','leg1','leg2'}."""
     return st.session_state.chart_meta.get(k, {})
@@ -599,11 +588,11 @@ def score_fig(s, label, meta=None):
     ))
     fig.update_layout(
         title=meta.get("title") or f"Indice normalisé — {label}", height=400,
-        xaxis=dict(tickvals=indice_axis, tickangle=45,
+        xaxis=dict(tickvals=indice_axis, tickangle=45, title_font=dict(size=16), tickfont=dict(size=14),
                    title=meta.get("xtitle") or "Année de la donnée"),
         yaxis=dict(range=[20, 80], title=meta.get("ytitle") or "Indice (0–100)",
-                   dtick=10),
-        legend=dict(orientation="h", y=-0.3),
+                   dtick=10, title_font=dict(size=16), tickfont=dict(size=14)),
+        legend=dict(orientation="h", y=-0.3, font=dict(size=14)),
         margin=dict(l=55, r=20, t=50, b=90),
     )
     return fig
@@ -630,10 +619,10 @@ def raw_fig(s, label, unit, meta=None):
     ))
     fig.update_layout(
         title=meta.get("title") or f"Données brutes — {label}", height=400,
-        xaxis=dict(tickvals=_raw_years, tickangle=45,
+        xaxis=dict(tickvals=_raw_years, tickangle=45, title_font=dict(size=16), tickfont=dict(size=14),
                    title=meta.get("xtitle") or "Année"),
-        yaxis=dict(title=meta.get("ytitle") or unit),
-        legend=dict(orientation="h", y=-0.3),
+        yaxis=dict(title=meta.get("ytitle") or unit, title_font=dict(size=16), tickfont=dict(size=14)),
+        legend=dict(orientation="h", y=-0.3, font=dict(size=14)),
         margin=dict(l=60, r=20, t=50, b=90),
     )
     return fig
@@ -1221,7 +1210,7 @@ with tabs[0]:
                 line=dict(color=BLUE, width=2.5),
                 marker=dict(size=8, color=marker_colors),
                 text=[f"{v:.1f}" for v in real_icf_vals],
-                textposition="top center", textfont=dict(size=10),
+                textposition="top center", textfont=dict(size=13),
             ))
 
         # (le marqueur "ICF N (provisoire/figé)" a été retiré : la courbe
@@ -1231,15 +1220,14 @@ with tabs[0]:
             title=_mg.get("title") or "Évolution ICF Global",
             height=460,
             xaxis=dict(tickvals=list(range(2015, 2027)), range=[2014.5, 2026.5],
-                       tickangle=45,
+                       tickangle=45, title_font=dict(size=16), tickfont=dict(size=14),
                        title=_mg.get("xtitle") or "Année de la donnée"),
-            yaxis=dict(range=[20, 80], dtick=10,
+            yaxis=dict(range=[20, 80], dtick=10, title_font=dict(size=16), tickfont=dict(size=14),
                        title=_mg.get("ytitle") or "Moyenne des indices (0–100)"),
-            legend=dict(orientation="h", y=-0.28),
+            legend=dict(orientation="h", y=-0.28, font=dict(size=15)),
             margin=dict(l=50, r=20, t=55, b=100),
         )
-        st.plotly_chart(fig_g, use_container_width=True,
-                        config=svg_config("icf_evolution_globale"))
+        st.plotly_chart(fig_g, use_container_width=True)
 
         # ── Graphes séparés : ICF Droits / ICF Devoirs ───────────────────────
         def _cat_fig(title, series, color, n_count, meta=None):
@@ -1268,17 +1256,17 @@ with tabs[0]:
                 line=dict(color=color, width=2.2),
                 marker=dict(size=7, color=color),
                 text=[f"{v:.1f}" for v in vals],
-                textposition="top center", textfont=dict(size=9, color=color),
+                textposition="top center", textfont=dict(size=12, color=color),
             ))
             fig.update_layout(
                 title=(meta.get("title") or title) + f" ({n_count} indicateurs)",
                 height=340,
                 xaxis=dict(tickvals=list(range(2015, 2027)), range=[2014.5, 2026.5],
-                           tickangle=45,
+                           tickangle=45, title_font=dict(size=16), tickfont=dict(size=14),
                            title=meta.get("xtitle") or "Année de la donnée"),
-                yaxis=dict(range=[20, 80], dtick=10,
+                yaxis=dict(range=[20, 80], dtick=10, title_font=dict(size=16), tickfont=dict(size=14),
                            title=meta.get("ytitle") or "Score (0–100)"),
-                legend=dict(orientation="h", y=-0.35),
+                legend=dict(orientation="h", y=-0.35, font=dict(size=14)),
                 margin=dict(l=45, r=15, t=45, b=85),
             )
             return fig
@@ -1288,13 +1276,11 @@ with tabs[0]:
         with col_dr:
             st.plotly_chart(_cat_fig("⚖️ Droits — moyenne des indices",
                                      gs_droits, "#26C6DA", n_droits, _mdr),
-                            use_container_width=True,
-                            config=svg_config("icf_droits"))
+                            use_container_width=True)
         with col_dv:
             st.plotly_chart(_cat_fig("📜 Devoirs — moyenne des indices",
                                      gs_devoirs, "#EC407A", n_devoirs, _mdv),
-                            use_container_width=True,
-                            config=svg_config("icf_devoirs"))
+                            use_container_width=True)
 
         # ── Personnalisation des graphiques globaux (admin) ──────────────────
         if IS_ADMIN:
@@ -1412,8 +1398,7 @@ with tabs[0]:
             margin=dict(l=0, r=0, t=0, b=0),
             height=max(200, 40 + len(ind_labels) * 28 + 32),
         )
-        st.plotly_chart(fig_table, use_container_width=True,
-                        config=svg_config("icf_tableau_indices"))
+        st.plotly_chart(fig_table, use_container_width=True)
 
 # ════════════════════════════════════════════════════════════════════════════
 # ONGLETS INDIVIDUELS
@@ -1475,13 +1460,11 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
         col_l, col_r = st.columns(2)
         with col_l:
             st.plotly_chart(score_fig(s, ind["label"], chart_meta(f"ind::{key}::score")),
-                            use_container_width=True,
-                            config=svg_config(f"indice_{key}"))
+                            use_container_width=True)
         with col_r:
             st.plotly_chart(raw_fig(s, ind["label"], ind["unit"],
                                     chart_meta(f"ind::{key}::raw")),
-                            use_container_width=True,
-                            config=svg_config(f"brut_{key}"))
+                            use_container_width=True)
 
         # ── Section édition (admin uniquement) ───────────────────────────────
         if IS_ADMIN:
