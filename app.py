@@ -314,6 +314,17 @@ if "data" not in st.session_state:
 if "chart_meta" not in st.session_state:
     st.session_state.chart_meta = {}
 
+def svg_config(filename):
+    """Config Plotly : le bouton 📷 télécharge en SVG (vectoriel, textes éditables)."""
+    return {
+        "toImageButtonOptions": {
+            "format": "svg",
+            "filename": filename,
+            "scale": 1,
+        },
+        "displaylogo": False,
+    }
+
 def chart_meta(k):
     """Personnalisation d'une figure : {'title','xtitle','ytitle','leg1','leg2'}."""
     return st.session_state.chart_meta.get(k, {})
@@ -1227,7 +1238,8 @@ with tabs[0]:
             legend=dict(orientation="h", y=-0.28),
             margin=dict(l=50, r=20, t=55, b=100),
         )
-        st.plotly_chart(fig_g, use_container_width=True)
+        st.plotly_chart(fig_g, use_container_width=True,
+                        config=svg_config("icf_evolution_globale"))
 
         # ── Graphes séparés : ICF Droits / ICF Devoirs ───────────────────────
         def _cat_fig(title, series, color, n_count, meta=None):
@@ -1276,11 +1288,13 @@ with tabs[0]:
         with col_dr:
             st.plotly_chart(_cat_fig("⚖️ Droits — moyenne des indices",
                                      gs_droits, "#26C6DA", n_droits, _mdr),
-                            use_container_width=True)
+                            use_container_width=True,
+                            config=svg_config("icf_droits"))
         with col_dv:
             st.plotly_chart(_cat_fig("📜 Devoirs — moyenne des indices",
                                      gs_devoirs, "#EC407A", n_devoirs, _mdv),
-                            use_container_width=True)
+                            use_container_width=True,
+                            config=svg_config("icf_devoirs"))
 
         # ── Personnalisation des graphiques globaux (admin) ──────────────────
         if IS_ADMIN:
@@ -1398,7 +1412,8 @@ with tabs[0]:
             margin=dict(l=0, r=0, t=0, b=0),
             height=max(200, 40 + len(ind_labels) * 28 + 32),
         )
-        st.plotly_chart(fig_table, use_container_width=True)
+        st.plotly_chart(fig_table, use_container_width=True,
+                        config=svg_config("icf_tableau_indices"))
 
 # ════════════════════════════════════════════════════════════════════════════
 # ONGLETS INDIVIDUELS
@@ -1460,11 +1475,13 @@ for tab_idx, (key, ind) in enumerate(list(data.items()), start=1):
         col_l, col_r = st.columns(2)
         with col_l:
             st.plotly_chart(score_fig(s, ind["label"], chart_meta(f"ind::{key}::score")),
-                            use_container_width=True)
+                            use_container_width=True,
+                            config=svg_config(f"indice_{key}"))
         with col_r:
             st.plotly_chart(raw_fig(s, ind["label"], ind["unit"],
                                     chart_meta(f"ind::{key}::raw")),
-                            use_container_width=True)
+                            use_container_width=True,
+                            config=svg_config(f"brut_{key}"))
 
         # ── Section édition (admin uniquement) ───────────────────────────────
         if IS_ADMIN:
