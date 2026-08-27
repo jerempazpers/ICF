@@ -337,21 +337,18 @@
   },
   "_charts": {
     "global::main": {
-      "title": "Évolution ICF",
       "xtitle": "Années",
       "ytitle": "Score",
       "leg1": "ICF annuel",
       "leg2": "Tendance (projection)"
     },
     "global::droits": {
-      "title": "Evolution ICF des Droits",
       "xtitle": "Années",
       "ytitle": "Score",
       "leg1": "ICF (Droits) annuel",
       "leg2": "Tendance (projection)"
     },
     "global::devoirs": {
-      "title": "Evolution ICF des Devoirs",
       "xtitle": "Années",
       "ytitle": "Score",
       "leg1": "ICF (Devoirs) annuel",
