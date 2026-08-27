@@ -398,6 +398,20 @@
       "ytitle": "Taux de décrochage (%)",
       "leg1": "Données brutes",
       "leg2": "Projection linéaire (2015–2026)"
+    },
+    "ind::rcds::score": {
+      "title": "Indicateur normalisé",
+      "xtitle": "Années",
+      "ytitle": "Score",
+      "leg1": "Indice réel",
+      "leg2": "Projection linéaire"
+    },
+    "ind::rcds::raw": {
+      "title": "Indicateur en Données brutes",
+      "xtitle": "Années",
+      "ytitle": "Nb. de réservistes ... (RCDS)",
+      "leg1": "Données brutes",
+      "leg2": "Projection linéaire (2015–2026)"
     }
   }
 }
