@@ -337,6 +337,7 @@
   },
   "_charts": {
     "global::main": {
+      "title": "Evolution ICF",
       "xtitle": "Années",
       "ytitle": "Score",
       "leg1": "ICF annuel",
