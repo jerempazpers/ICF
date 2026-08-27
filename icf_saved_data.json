@@ -344,12 +344,14 @@
       "leg2": "Tendance (projection)"
     },
     "global::droits": {
+      "title": "ICF des Droits",
       "xtitle": "Années",
       "ytitle": "Score",
       "leg1": "ICF (Droits) annuel",
       "leg2": "Tendance (projection)"
     },
     "global::devoirs": {
+      "title": "ICF des Devoirs",
       "xtitle": "Années",
       "ytitle": "Score",
       "leg1": "ICF (Devoirs) annuel",
