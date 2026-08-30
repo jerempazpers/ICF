@@ -412,6 +412,20 @@
       "ytitle": "Nb. de réservistes ... (RCDS)",
       "leg1": "Données brutes",
       "leg2": "Projection linéaire (2015–2026)"
+    },
+    "ind::delinquance::score": {
+      "title": "Indice normalisé — INDICE 6 - Nombre de crimes et délits enregistrés",
+      "xtitle": "Année de la donnée",
+      "ytitle": "Indice (0–100)",
+      "leg1": "Indice réel",
+      "leg2": "Projection linéaire"
+    },
+    "ind::delinquance::raw": {
+      "title": "Données brutes — INDICE 6 - Nombre de crimes et délits enregistrés",
+      "xtitle": "Année",
+      "ytitle": "nb crimes et délits",
+      "leg1": "Données réelles",
+      "leg2": "Projection linéaire (2015–2026)"
     }
   }
 }
