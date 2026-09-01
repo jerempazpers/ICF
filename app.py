@@ -21,7 +21,7 @@ BLUE, RED = "#378ADD", "#E24B4A"
 
 ORIGINAL_DATA = {
     "participation": {
-        "label": "INDICE 1 - Taux de participation moyen aux élections nationales et locales",
+        "label": "Taux de participation moyen aux élections nationales et locales",
         "short": "1. Participation",
         "unit": "%", "inv": False, "cat": "droit",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -29,7 +29,7 @@ ORIGINAL_DATA = {
         "frozen_scores": {"2025": 40.5},
     },
     "presse": {
-        "label": "INDICE 2 - Classement RSF de la liberté de la presse",
+        "label": "Rang de la France au classement RSF de la liberté de la presse",
         "short": "2. Presse (RSF)",
         "unit": "rang", "inv": True, "cat": "droit",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -37,7 +37,7 @@ ORIGINAL_DATA = {
         "frozen_scores": {"2025": 76.5},
     },
     "decrochage": {
-        "label": "INDICE 3 - Taux d'échec scolaire pour les 18-24 ans",
+        "label": "Taux de décrochage scolaire pour les 18-24 ans",
         "short": "3. Échec scolaire",
         "unit": "%", "inv": True, "cat": "droit",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -45,7 +45,7 @@ ORIGINAL_DATA = {
         "frozen_scores": {"2025": 60.5},
     },
     "rcds": {
-        "label": "INDICE 4 - Nb. de réservistes citoyens de défense et de sécurité (RCDS)",
+        "label": "Effectif des Réservistes Citoyens de Défense et de Sécurité",
         "short": "4. Réservistes",
         "unit": "effectifs", "inv": False, "cat": "droit",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -53,15 +53,15 @@ ORIGINAL_DATA = {
         "frozen_scores": {"2025": 67.5},
     },
     "rsa": {
-        "label": "INDICE 5 - Nb Allocataire Minima sociaux",
+        "label": "Part d'allocataires parmi la population âgée de 15 ans ou plus",
         "short": "5. Minima sociaux",
         "unit": "%", "inv": False, "cat": "droit",
-        "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023],
-        "vals": [7.72368676771166, 7.586442401986661, 7.676919454692048, 7.678971531865303, 7.730308222546486, 8.020831649432282, 7.712203575595507, 7.697367765164609, 7.7],
-        "frozen_scores": {"2025": 57.2},
+        "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+        "vals": [7.72368676771166, 7.586442401986661, 7.676919454692048, 7.678971531865303, 7.730308222546486, 8.020831649432282, 7.712203575595507, 7.697367765164609, 7.7, 7.8, 7.8],
+        "frozen_scores": {"2025": 59.8},
     },
     "delinquance": {
-        "label": "INDICE 6 - Faits de délinquances signalés à l'endroit des personnes",
+        "label": "Nombre de crimes et délits enregistrés contre les personnes",
         "short": "6. Délinquance",
         "unit": "nb crimes et délits", "inv": True, "cat": "devoir",
         "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
@@ -69,7 +69,7 @@ ORIGINAL_DATA = {
         "frozen_scores": {"2025": 31.0},
     },
     "laicite": {
-        "label": "INDICE 7 - Nb d'incidents signalés à l'école pour motif religieux",
+        "label": "Nombre d'actes d'atteinte à la laïcité dans les écoles",
         "short": "7. Laïcité école",
         "unit": "nb incidents", "inv": True, "cat": "devoir",
         "years": [2020, 2021, 2022, 2023, 2024, 2025],
@@ -77,7 +77,7 @@ ORIGINAL_DATA = {
         "frozen_scores": {"2025": 23.4},
     },
     "salaires": {
-        "label": "INDICE 8 - Écart salarial moyen hommes/femmes à temps égal",
+        "label": "Ecart de salaire entre les femmes et les hommes en %",
         "short": "8. Écart salarial",
         "unit": "%", "inv": True, "cat": "devoir",
         "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
@@ -85,15 +85,15 @@ ORIGINAL_DATA = {
         "frozen_scores": {"2025": 72.1},
     },
     "violences": {
-        "label": "INDICE 9 - Nb de femmes victimes de violences au sein du couple",
+        "label": "Nombre de condamnations pour violence faites aux femmes (entre partenaire auteur homme)",
         "short": "9. Violences couple",
         "unit": "nb condamnations", "inv": True, "cat": "devoir",
-        "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
-        "vals": [16916, 16829, 17908, 20200, 22764, 33040, 35138, 37176, 38006],
+        "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+        "vals": [16916, 16829, 17908, 20200, 22764, 33040, 35138, 37176, 38006, 50396],
         "frozen_scores": {"2025": 28.2},
     },
     "racisme": {
-        "label": "INDICE 10 - Nombre d'infractions à \"caractère raciste\"",
+        "label": "Nombre d'infractions à caractère raciste",
         "short": "10. Racisme",
         "unit": "nb infractions", "inv": True, "cat": "devoir",
         "years": [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
