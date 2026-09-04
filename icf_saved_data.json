@@ -454,6 +454,20 @@
       "ytitle": "%",
       "leg1": "Données réelles",
       "leg2": "Projection linéaire"
+    },
+    "ind::laicite::score": {
+      "title": "Indice normalisé",
+      "xtitle": "Années",
+      "ytitle": "Score",
+      "leg1": "Indice réel",
+      "leg2": "Projection linéaire"
+    },
+    "ind::laicite::raw": {
+      "title": "Données brutes",
+      "xtitle": "Années",
+      "ytitle": "Nombre d'actes signalés",
+      "leg1": "Données réelles",
+      "leg2": "Projection linéaire"
     }
   }
 }
