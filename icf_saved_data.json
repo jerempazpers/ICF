@@ -428,16 +428,16 @@
       "leg2": "Projection linéaire"
     },
     "ind::violences::score": {
-      "title": "Indice normalisé — INDICE 9 - Condamnations pour violence faites aux femmes",
-      "xtitle": "Année de la donnée",
-      "ytitle": "Indice (0–100)",
+      "title": "Indice normalisé",
+      "xtitle": "Années",
+      "ytitle": "Score",
       "leg1": "Indice réel",
       "leg2": "Projection linéaire"
     },
     "ind::violences::raw": {
-      "title": "Données brutes — INDICE 9 - Condamnations pour violence faites aux femmes",
-      "xtitle": "Année",
-      "ytitle": "nb condamnations",
+      "title": "Données brutes",
+      "xtitle": "Années",
+      "ytitle": "Nombre de condamnations",
       "leg1": "Données réelles",
       "leg2": "Projection linéaire (2015–2026)"
     },
