@@ -1,6 +1,6 @@
 {
   "participation": {
-    "label": "INDICE 1 - Taux de participation moyen aux élections nationales et locales",
+    "label": "Taux de participation moyen aux élections nationales et locales",
     "short": "1. Participation",
     "unit": "%",
     "inv": false,
@@ -36,7 +36,7 @@
     }
   },
   "presse": {
-    "label": "INDICE 2 - Classement RSF de la liberté de la presse",
+    "label": "Rang de la France au classement RSF de la liberté de la presse",
     "short": "2. Presse (RSF)",
     "unit": "rang",
     "inv": true,
@@ -72,7 +72,7 @@
     }
   },
   "decrochage": {
-    "label": "INDICE 3 - Taux d'échec scolaire pour les 18-24 ans",
+    "label": "Taux de décrochage scolaire pour les 18-24 ans",
     "short": "3. Échec scolaire",
     "unit": "%",
     "inv": true,
@@ -108,7 +108,7 @@
     }
   },
   "rcds": {
-    "label": "INDICE 4 - Nb. de réservistes citoyens de défense et de sécurité (RCDS)",
+    "label": "Effectif des Réservistes Citoyens de Défense et de Sécurité",
     "short": "4. Réservistes",
     "unit": "effectifs",
     "inv": false,
@@ -144,7 +144,7 @@
     }
   },
   "rsa": {
-    "label": "INDICE 5 - Nb Allocataire Minima sociaux",
+    "label": "Part d'allocataires parmi la population âgée de 15 ans ou plus",
     "short": "5. Minima sociaux",
     "unit": "%",
     "inv": false,
@@ -176,7 +176,7 @@
     }
   },
   "delinquance": {
-    "label": "INDICE 6 - Faits de délinquances signalés à l'endroit des personnes",
+    "label": "Nombre de crimes et délits enregistrés contre les personnes",
     "short": "6. Délinquance",
     "unit": "nb crimes et délits",
     "inv": true,
@@ -210,7 +210,7 @@
     }
   },
   "laicite": {
-    "label": "INDICE 7 - Nb d'incidents signalés à l'école pour motif religieux",
+    "label": "Nombre d'actes d'atteinte à la laïcité dans les écoles",
     "short": "7. Laïcité école",
     "unit": "nb incidents",
     "inv": true,
@@ -236,7 +236,7 @@
     }
   },
   "salaires": {
-    "label": "INDICE 8 - Écart salarial moyen hommes/femmes à temps égal",
+    "label": "Ecart de salaire entre les femmes et les hommes en %",
     "short": "8. Écart salarial",
     "unit": "%",
     "inv": true,
@@ -270,7 +270,7 @@
     }
   },
   "violences": {
-    "label": "INDICE 9 - Nb de femmes victimes de violences au sein du couple",
+    "label": "Nombre de condamnations pour violence faites aux femmes (entre partenaire auteur homme)",
     "short": "9. Violences couple",
     "unit": "nb condamnations",
     "inv": true,
@@ -302,7 +302,7 @@
     }
   },
   "racisme": {
-    "label": "INDICE 10 - Nombre d'infractions à \"caractère raciste\"",
+    "label": "Nombre d'infractions à caractère raciste",
     "short": "10. Racisme",
     "unit": "nb infractions",
     "inv": true,
@@ -337,7 +337,7 @@
   },
   "_charts": {
     "global::main": {
-      "title": "Evolution ICF",
+      "title": "Courbe d'évolution de l'ICF",
       "xtitle": "Années",
       "ytitle": "Score",
       "leg1": "ICF annuel",
