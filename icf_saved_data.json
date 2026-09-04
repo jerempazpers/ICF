@@ -443,14 +443,14 @@
     },
     "ind::rsa::score": {
       "title": "Indicateur normalisé — Part d'allocataires ...",
-      "xtitle": "Année de la donnée",
+      "xtitle": "Années",
       "ytitle": "Indice (0–100)",
       "leg1": "Indice réel",
       "leg2": "Projection linéaire"
     },
     "ind::rsa::raw": {
       "title": "Données brutes — Part d'allocataires ...",
-      "xtitle": "Année",
+      "xtitle": "Années",
       "ytitle": "%",
       "leg1": "Données réelles",
       "leg2": "Projection linéaire (2015–2026)"
