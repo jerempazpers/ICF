@@ -423,7 +423,7 @@
     "ind::delinquance::raw": {
       "title": "Données brutes",
       "xtitle": "Années",
-      "ytitle": "Nombres de crimes et délits",
+      "ytitle": "Nb de crimes et délits enregistrés",
       "leg1": "Données réelles",
       "leg2": "Projection linéaire"
     },
