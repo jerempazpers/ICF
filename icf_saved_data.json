@@ -414,18 +414,18 @@
       "leg2": "Projection linéaire"
     },
     "ind::delinquance::score": {
-      "title": "Indice normalisé — INDICE 6 - Nombre de crimes et délits enregistrés",
-      "xtitle": "Année de la donnée",
-      "ytitle": "Indice (0–100)",
+      "title": "Indice normalisé",
+      "xtitle": "Années",
+      "ytitle": "Score",
       "leg1": "Indice réel",
       "leg2": "Projection linéaire"
     },
     "ind::delinquance::raw": {
-      "title": "Données brutes — INDICE 6 - Nombre de crimes et délits enregistrés",
-      "xtitle": "Année",
-      "ytitle": "nb crimes et délits",
+      "title": "Données brutes",
+      "xtitle": "Années",
+      "ytitle": "Nombres de crimes et délits",
       "leg1": "Données réelles",
-      "leg2": "Projection linéaire (2015–2026)"
+      "leg2": "Projection linéaire"
     },
     "ind::violences::score": {
       "title": "Indice normalisé — INDICE 9 - Condamnations pour violence faites aux femmes",
