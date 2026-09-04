@@ -397,7 +397,7 @@
       "xtitle": "Année",
       "ytitle": "Taux de décrochage (%)",
       "leg1": "Données brutes",
-      "leg2": "Projection linéaire (2015–2026)"
+      "leg2": "Projection linéaire"
     },
     "ind::rcds::score": {
       "title": "Indicateur normalisé",
