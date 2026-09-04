@@ -482,6 +482,20 @@
       "ytitle": "Ecart en %",
       "leg1": "Données réelles",
       "leg2": "Projection linéaire"
+    },
+    "ind::racisme::score": {
+      "title": "Indice normalisé",
+      "xtitle": "Années",
+      "ytitle": "Score",
+      "leg1": "Indice réel",
+      "leg2": "Projection linéaire"
+    },
+    "ind::racisme::raw": {
+      "title": "Données brutes",
+      "xtitle": "Années",
+      "ytitle": "Nombre d'infractions",
+      "leg1": "Données réelles",
+      "leg2": "Projection linéaire"
     }
   }
 }
